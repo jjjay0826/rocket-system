@@ -929,6 +929,13 @@ int main(void)
             default:               st_s = "DD"; break;
           }
           lora_seq++;   /* 序號遞增（接收端用來偵測掉包）*/
+          /* ── LoRa 遙測封包格式 ───────────────────────────────────────────
+           * ⚠ 此格式是「火箭端 ↔ 地面端」共用協定。單一真實來源見
+           *    shared/protocol.h（對應巨集 RKT_LORA_TX_FMT / RKT_LORA_RX_FMT）。
+           *    目前「未」#include 該檔、格式直接寫死於下方 snprintf，屬人工同步：
+           *    改動下面任一欄位 → 必須同步更新 (1) shared/protocol.h 與
+           *    (2) firmware-ground 的解析端，三處一致，否則地面端解出垃圾。
+           * ───────────────────────────────────────────────────────────────── */
           char lora_pkt[96];
           int lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
             "N=%lu T=%lu P=%.2f RH=%.1f KH=%.1f G=%.2f S=%s M=%d%d%d%d\n",
