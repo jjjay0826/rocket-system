@@ -21,7 +21,7 @@ Release/
 .settings/
 .metadata/
 RemoteSystemsTempFiles/
-.cproject.bak
+*.bak
 *.tmp
 
 # ───────────────────────── Claude Code（本機設定）─────────────────────────
