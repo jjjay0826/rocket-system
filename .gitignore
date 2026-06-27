@@ -1,0 +1,42 @@
+# ───────────────────────── STM32CubeIDE / Eclipse ─────────────────────────
+# 編譯輸出（任何層級的 Debug/、Release/）
+Debug/
+Release/
+
+# 編譯產物
+*.o
+*.d
+*.su
+*.lst
+*.list
+*.map
+*.elf
+*.bin
+*.hex
+*.cyclo
+*.i
+*.s.o
+
+# IDE / workspace 暫存（會含絕對路徑，不入庫；CubeIDE 會自動重建）
+.settings/
+.metadata/
+RemoteSystemsTempFiles/
+.cproject.bak
+*.tmp
+
+# ───────────────────────── Claude Code（本機設定）─────────────────────────
+.claude/
+settings.local.json
+
+# ───────────────────────────────── OS ─────────────────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ─────────────────────────────── 備註 ─────────────────────────────────────
+# 以下「刻意保留入庫」，勿加入忽略：
+#   .project / .cproject  → 專案定義
+#   *.ioc / .mxproject     → CubeMX 設定
+#   *.ld                   → linker script
+#   *.launch               → 除錯啟動設定
+#   Core/ Drivers/ FATFS/ Middlewares/ USB_DEVICE/ Application/ → 原始碼與 HAL
