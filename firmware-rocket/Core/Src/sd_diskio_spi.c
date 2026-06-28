@@ -41,6 +41,7 @@ extern SPI_HandleTypeDef hspi1;
 
 static volatile DSTATUS Stat = STA_NOINIT;   /* 磁碟狀態 */
 static BYTE  CardType;
+volatile uint8_t SD_dbg_cmd0 = 0xEE, SD_dbg_cmd8 = 0xEE;   /* debug：init 階段 CMD0/CMD8 回應 */
 /* 逾時一律用 HAL_GetTick()(1ms SysTick) 計算 deadline，不依賴 timerproc 呼叫頻率 */
 
 /* ══════════ SPI 低階 ══════════ */
@@ -165,9 +166,12 @@ DSTATUS SD_disk_initialize(BYTE pdrv)
     for (n = 10; n; n--) xchg_spi(0xFF);   /* ≥74 時脈喚醒卡 */
 
     ty = 0;
-    if (send_cmd(CMD0, 0) == 1) {          /* 進入 idle */
+    SD_dbg_cmd0 = send_cmd(CMD0, 0);
+    SD_dbg_cmd8 = 0xEE;
+    if (SD_dbg_cmd0 == 1) {                /* 進入 idle */
         uint32_t it0 = HAL_GetTick();      /* 初始化 1s 預算 */
-        if (send_cmd(CMD8, 0x1AA) == 1) {  /* SDv2? */
+        SD_dbg_cmd8 = send_cmd(CMD8, 0x1AA);
+        if (SD_dbg_cmd8 == 1) {            /* SDv2? */
             for (n = 0; n < 4; n++) ocr[n] = xchg_spi(0xFF);
             if (ocr[2] == 0x01 && ocr[3] == 0xAA) {        /* 2.7-3.6V */
                 while ((HAL_GetTick() - it0) < 1000 && send_cmd(ACMD41, 0x40000000)) ;  /* HCS */

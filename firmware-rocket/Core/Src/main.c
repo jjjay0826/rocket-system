@@ -649,8 +649,10 @@ int main(void)
         uart1_write("SD: OK\r\n"); cdc_write("SD: OK\r\n");
       } else {
         extern FRESULT fres;
-        char e[48];
-        snprintf(e, sizeof(e), "SD: FAIL (fres=%d)\r\n", (int)fres);
+        extern volatile uint8_t SD_dbg_cmd0, SD_dbg_cmd8;
+        char e[64];
+        snprintf(e, sizeof(e), "SD: FAIL (fres=%d cmd0=%02X cmd8=%02X)\r\n",
+                 (int)fres, (unsigned)SD_dbg_cmd0, (unsigned)SD_dbg_cmd8);
         uart1_write(e); cdc_write(e);
       }
     }
