@@ -63,12 +63,19 @@ void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, LED_B10_Pin|SIG_OUT_3_Pin|SIG_OUT_2_Pin|SIG_OUT_1_Pin
                           |GPIO_PIN_8, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : FIRE_7V_1_Pin FIRE_7V_2_Pin SD_CS_Pin IMU_CS_N_Pin */
-  GPIO_InitStruct.Pin = FIRE_7V_1_Pin|FIRE_7V_2_Pin|SD_CS_Pin|IMU_CS_N_Pin;
+  /*Configure GPIO pins : FIRE_7V_1_Pin FIRE_7V_2_Pin IMU_CS_N_Pin */
+  GPIO_InitStruct.Pin = FIRE_7V_1_Pin|FIRE_7V_2_Pin|IMU_CS_N_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : SD_CS_Pin */
+  GPIO_InitStruct.Pin = SD_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
+  HAL_GPIO_Init(SD_CS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : LED_B2_Pin LED_B10_Pin BARO_CS_Pin SIG_OUT_3_Pin
                            SIG_OUT_2_Pin SIG_OUT_1_Pin PB8 */
