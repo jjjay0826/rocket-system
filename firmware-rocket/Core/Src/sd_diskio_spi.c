@@ -241,7 +241,9 @@ DRESULT SD_disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT count)
                 if (!xmit_datablock(buff, 0xFC)) break;
                 buff += 512;
             } while (--count);
-            if (!xmit_datablock(0, 0xFD)) count = 1;   /* 停止 token */
+            /* 停止 token：buff 內容不使用，用 dummy 避免傳入 NULL */
+            static const BYTE sd_stop_dummy[1] = {0};
+            if (!xmit_datablock(sd_stop_dummy, 0xFD)) count = 1;
         }
     }
     deselect();

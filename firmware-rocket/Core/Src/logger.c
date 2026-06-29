@@ -73,6 +73,7 @@ uint8_t logger_is_ready(void) { return sd_ok; }
 void logger_write(const char *data) {
     char line[128];
     UINT bw;
+    static uint16_t write_count = 0;   /* 偵測寫入次數，每 16 筆才 sync 一次 */
 
     /* SD 卡未就緒或正在讀取，跳過 */
     if (!sd_ok || logger_reading) return;
@@ -83,11 +84,16 @@ void logger_write(const char *data) {
     // 寫入檔案
     fres = f_write(&file, line, strlen(line), &bw);
     if (fres == FR_OK) {
-        f_sync(&file); // 保證立即寫入 SD 卡
+        write_count++;
+        /* 每 16 筆 sync 一次（約 8 秒一次）賸免飛行中高頻觸發 FAT GC */
+        if ((write_count & 0x0F) == 0) {
+            f_sync(&file);
+        }
     }
 }
 
 void logger_close(void) {
+    f_sync(&file);   /* 強制同步未寫入的緩衝資料 */
     f_close(&file);
 }
 
