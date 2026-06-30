@@ -42,6 +42,9 @@ extern SPI_HandleTypeDef hspi1;
 static volatile DSTATUS Stat = STA_NOINIT;   /* 磁碟狀態 */
 static BYTE  CardType;
 volatile uint8_t SD_dbg_cmd0 = 0xEE, SD_dbg_cmd8 = 0xEE;   /* debug：init 階段 CMD0/CMD8 回應 */
+volatile uint32_t SD_dbg_spierr     = 0;   /* debug：xchg_spi 中 HAL 傳輸失敗的累計次數 */
+volatile uint8_t  SD_dbg_spi_status = 0;   /* debug：最後一次 HAL status（1=ERROR 2=BUSY 3=TIMEOUT）*/
+volatile uint32_t SD_dbg_spi_errcode = 0;  /* debug：最後一次 SPI ErrorCode（HAL_SPI_ERROR_*）*/
 /* 逾時一律用 HAL_GetTick()(1ms SysTick) 計算 deadline，不依賴 timerproc 呼叫頻率 */
 
 /* ══════════ SPI 低階 ══════════ */
@@ -53,7 +56,12 @@ static void FCLK_FAST(void)  /* ~5.25MHz：84MHz / 16，經電平轉換較保守
 static BYTE xchg_spi(BYTE dat)
 {
     BYTE rx = 0xFF;
-    HAL_SPI_TransmitReceive(SD_SPI, &dat, &rx, 1, 50);
+    HAL_StatusTypeDef st = HAL_SPI_TransmitReceive(SD_SPI, &dat, &rx, 1, 50);
+    if (st != HAL_OK) {            /* HAL 傳輸失敗 → rx 仍是初值 0xFF，記錄下來以辨「假象」*/
+        SD_dbg_spierr++;
+        SD_dbg_spi_status  = (uint8_t)st;
+        SD_dbg_spi_errcode = SD_SPI->ErrorCode;
+    }
     return rx;
 }
 static void rcvr_spi_multi(BYTE *buff, UINT btr)
