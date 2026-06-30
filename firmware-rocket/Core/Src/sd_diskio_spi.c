@@ -83,8 +83,19 @@ static void deselect(void)
 static int select_card(void)   /* 1=OK, 0=timeout */
 {
     CS_LOW();
-    xchg_spi(0xFF);
+
+    /* ================================================= */
+    /* 新增延遲區塊：給予電平轉換晶片足夠的反應時間 */
+    /* 模擬 Arduino digitalWrite 的延遲 (約幾微秒) */
+    for(volatile int i = 0; i < 500; i++) {
+        __NOP();
+    }
+    /* ================================================= */
+
+    xchg_spi(0xFF); // 發送 Dummy Clock 讓 SD 卡準備好
+    
     if (wait_ready(500)) return 1;
+    
     deselect();
     return 0;
 }
