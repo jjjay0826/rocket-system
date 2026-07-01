@@ -25,6 +25,8 @@ static volatile uint8_t logger_reading = 0;
 static volatile uint8_t sd_ok = 0;
 /* FATFS 驅動只綁定一次 */
 static uint8_t fatfs_linked = 0;
+/* 當前 log 檔名：每次上電遞增（log1.csv, log2.csv, ...），不覆寫舊飛行資料 */
+static char cur_logname[16] = "log1.csv";
 
 void logger_init(void) {
     sd_ok = 0;
@@ -39,10 +41,19 @@ void logger_init(void) {
     fres = f_mount(&USERFatFS, USERPath, 1);
     if (fres != FR_OK) { return; }
 
-    /* FA_CREATE_ALWAYS：每次上電從頭覆寫舊資料
-     * 預分配永遠從 byte 0 開始，8MB 全部用於本次任務 */
-    fres = f_open(&file, "log.csv", FA_WRITE | FA_CREATE_ALWAYS);
-    if (fres != FR_OK) { return; }
+    /* 找下一個沒用過的 logN.csv → 每次上電開新檔，不覆寫上一次飛行資料。
+     * 用 FA_CREATE_NEW 逐號嘗試：檔案已存在會回 FR_EXIST 就換下一號。*/
+    {
+        int idx;
+        for (idx = 1; idx <= 9999; idx++) {
+            snprintf(cur_logname, sizeof(cur_logname), "log%d.csv", idx);
+            fres = f_open(&file, cur_logname, FA_WRITE | FA_CREATE_NEW);
+            if (fres == FR_OK)    break;   /* 建立成功＝此編號還沒用過 */
+            if (fres != FR_EXIST) return;  /* 非「已存在」的錯誤（如無卡）→ 放棄 */
+        }
+        if (fres != FR_OK) return;         /* 9999 號都用光（幾乎不可能）*/
+    }
+    /* 檔案剛建立，大小=0、append_pos=0；預分配從 byte 0 開始一次配滿 8MB */
 
     /* ── 預分配磁碟空間（減少飛行中 SD GC 阻塞）────────────────────
      * FA_CREATE_ALWAYS 後檔案大小 = 0，append_pos = 0，
@@ -104,9 +115,9 @@ int logger_open_for_read(void) {
 
     // 以唯讀模式重新開啟日誌檔案
     if (!sd_ok) { uart1_write("ERR: SD not ready\r\n"); return -1; }
-    fres = f_open(&file, "log.csv", FA_READ);
+    fres = f_open(&file, cur_logname, FA_READ);
     if (fres != FR_OK) {
-        uart1_write("ERR: Cannot open log.csv for reading\r\n");
+        uart1_write("ERR: Cannot open log for reading\r\n");
         return -1;
     }
     return 0;
@@ -204,8 +215,9 @@ void logger_read_all_uart(void) {
     uart1_write("===== End of Log =====\r\n");
     f_close(&file);
 
-    /* 讀取結束，解除阻止，並重新開啟日誌供寫入 */
+    /* 讀完以 append 重開「同一個」log 檔：繼續寫、不清空、不建新檔。
+     * （原本呼叫 logger_init() 會觸發建新檔／清空剛讀的資料，是先前的 bug）*/
+    fres = f_open(&file, cur_logname, FA_WRITE | FA_OPEN_APPEND);
     logger_reading = 0;
-    logger_init();
 }
 

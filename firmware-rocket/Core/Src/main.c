@@ -962,16 +962,13 @@ int main(void)
     }
     /* ═══════════════════════════════════════════════════════════════ */
 
-    /* ─── UART/CDC 輸出每 500ms ─── */
-    if (now - t_out >= 500) {
+    /* ─── UART/CDC 輸出：一般每 500ms；LANDED 後降頻到每 5s（省電/減 SD 損耗）─── */
+    uint32_t out_interval = (flight_state == FLIGHT_LANDED) ? LAND_LOG_INTERVAL : 500UL;
+    if (now - t_out >= out_interval) {
       t_out = now;
       HAL_GPIO_TogglePin(LED_B10_GPIO_Port, LED_B10_Pin);   /* 狀態燈 */
 
       GNSS_Data gd = GNSS_GetData();
-      /* LANDED 狀態：僅每 5s 輸出一次 beacon，減少 SD 寫入損耗 */
-      if (flight_state == FLIGHT_LANDED && (now - t_out) < LAND_LOG_INTERVAL) {
-        goto skip_output;   /* 未到 5s 間隔，跳過輸出 */
-      }
 
       char state_str[24];
       switch (flight_state) {
@@ -1113,7 +1110,6 @@ int main(void)
         if (!cmd_is_typing()) { cdc_write(b); }
       }
     }
-    skip_output:;   /* LANDED 狀態低頻輸出跳點 */
   }
   /* USER CODE END 3 */
 }
