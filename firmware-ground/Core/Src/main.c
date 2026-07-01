@@ -73,13 +73,27 @@ int main(void)
       // 外部宣告 lora_e22.c 內部的 head 與 tail 指標
       extern volatile uint16_t rx_head;
       extern volatile uint16_t rx_tail;
-      
+      extern volatile uint8_t rx_ring[];
+
       char debug_info[128];
       uint32_t sr = huart1.Instance->SR; // 取得 UART1 狀態暫存器
       
       sprintf(debug_info, "[Debug] Head:%d, Tail:%d, SR:0x%08lX, State:0x%02X\r\n", 
               rx_head, rx_tail, sr, huart1.RxState);
       cdc_write(debug_info);
+
+      if (rx_head != rx_tail) {
+          cdc_write("Mystery Bytes: ");
+          char hex_str[8];
+          uint16_t curr = rx_tail;
+          // LORA_RXBUF_MASK 假設你是 256 大小，所以是 255 (0xFF)
+          while (curr != rx_head) {
+              sprintf(hex_str, "%02X ", rx_ring[curr]);
+              cdc_write(hex_str);
+              curr = (curr + 1) & 255; 
+          }
+          cdc_write("\r\n");
+      }
     }
 
     /* 2. 原本的接收邏輯 */

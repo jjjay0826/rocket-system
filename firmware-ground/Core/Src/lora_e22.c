@@ -50,7 +50,7 @@ static volatile uint32_t tx_start  = 0;
 static uint8_t  tx_buf[256];        /* 送出前先複製，IT 期間不可被覆寫 */
 
 /* ── RX ring buffer ── */
-static volatile uint8_t  rx_ring[LORA_RXBUF_SIZE];
+volatile uint8_t  rx_ring[LORA_RXBUF_SIZE];
 volatile uint16_t rx_head = 0;   /* ISR 寫入 */
 volatile uint16_t rx_tail = 0;   /* 主迴圈讀取 */
 static uint8_t  rx_byte;                 /* 單 byte IT 暫存 */
