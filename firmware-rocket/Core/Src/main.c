@@ -643,25 +643,6 @@ int main(void)
     /* ─── SD 卡延遲初始化（啟動後 3 秒）─── */
     if (!sd_init_done && now >= 3000UL) {
       sd_init_done = 1;
-
-      /* ── SD SPI1 loopback 自測（診斷用，測完可刪）──────────────────────
-       * 步驟：把 SD 模組拔下，在火箭板「SD 排針座」上短接 MISO 孔 ↔ MOSI 孔。
-       *   rx==tx (MATCH) → STM32 PA6/PA7 + 走線到排針座都好，問題在模組接觸或 SCK/CS；
-       *   rx 仍=FF (----) → MOSI 出不去 或 MISO 讀不回，問題在 STM32 引腳/PCB 走線。
-       * CS 全程拉高（不選卡）；不短接時本來就會全 ----，務必先短接再看。*/
-      {
-        HAL_GPIO_WritePin(SD_CS_GPIO_Port, SD_CS_Pin, GPIO_PIN_SET);
-        const uint8_t lbtx[4] = {0x55, 0xAA, 0x0F, 0xF0};
-        char lb[80];
-        for (int i = 0; i < 4; i++) {
-          uint8_t t = lbtx[i], r = 0xFF;
-          HAL_StatusTypeDef s = HAL_SPI_TransmitReceive(&hspi1, &t, &r, 1, 50);
-          snprintf(lb, sizeof(lb), "LB: tx=%02X rx=%02X %s st=%d\r\n",
-                   t, r, (r == lbtx[i]) ? "MATCH" : "----", (int)s);
-          uart1_write(lb); cdc_write(lb);
-        }
-      }
-
       logger_init();
       if (logger_is_ready()) {
         mod.sdcard = 1;

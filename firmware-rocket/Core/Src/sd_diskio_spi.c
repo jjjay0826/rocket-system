@@ -185,7 +185,20 @@ DSTATUS SD_disk_initialize(BYTE pdrv)
     for (n = 10; n; n--) xchg_spi(0xFF);   /* ≥74 時脈喚醒卡 */
 
     ty = 0;
-    SD_dbg_cmd0 = send_cmd(CMD0, 0);
+    /* ── CMD0 特例：跳過 select_card 的 wait_ready，直接送 ─────────────────
+     * 診斷:本模組在 deselect/init 階段 MISO 可能恆低(曾實測讀到 0x00)。
+     * 原 send_cmd→select_card→wait_ready 會一直等「MISO 變 0xFF」等不到 →
+     * 500ms timeout → CMD0 的 6 個 byte 根本沒送出、直接回硬編碼 0xFF。
+     * 這裡 CS 拉低後直接送 CMD0 frame + 讀 R1，繞過 wait_ready。
+     * 判讀:cmd0=01 → 卡有進 idle(wait_ready 是元兇，已解決)；
+     *      cmd0=FF/00 → 卡真的沒回(問題回到卡/SCK/CS 硬體)。*/
+    CS_LOW();
+    for (volatile int i = 0; i < 500; i++) __NOP();   /* 沿用 jx06t 電平穩定延遲 */
+    xchg_spi(0xFF);                                   /* 一個 dummy clock */
+    xchg_spi(0x40 | CMD0);                            /* CMD0 */
+    xchg_spi(0); xchg_spi(0); xchg_spi(0); xchg_spi(0);   /* arg = 0 */
+    xchg_spi(0x95);                                   /* CMD0 CRC */
+    { BYTE r; n = 10; do { r = xchg_spi(0xFF); } while ((r & 0x80) && --n); SD_dbg_cmd0 = r; }
     SD_dbg_cmd8 = 0xEE;
     if (SD_dbg_cmd0 == 1) {                /* 進入 idle */
         uint32_t it0 = HAL_GetTick();      /* 初始化 1s 預算 */
