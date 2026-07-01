@@ -268,4 +268,20 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
   }
 }
 
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    /* 針對 F4 系列清除 ORE 的傳統萬用方法：依序讀取 SR 與 DR 暫存器 */
+    __IO uint32_t tmpreg;
+    tmpreg = huart->Instance->SR;
+    tmpreg = huart->Instance->DR;
+    (void)tmpreg; // 避免 compiler 報 unused variable 警告
+
+    /* 重新掛載中斷 */
+    LoRa_StartRx();
+  }
+}
+
 /* USER CODE END 1 */

@@ -60,16 +60,37 @@ int main(void)
   HAL_Delay(500);
   cdc_write("=== Ground RX ready (E22 -> USB CDC) ===\r\n");
 
+ 
   char line[128];
+  uint32_t last_debug_time = HAL_GetTick();
+
   while (1)
   {
-    /* 取一整行（火箭端封包以 '\n' 結尾）→ 原樣轉發到電腦 */
+     if (HAL_GetTick() - last_debug_time > 2000)
+    {
+      last_debug_time = HAL_GetTick();
+      
+      // 外部宣告 lora_e22.c 內部的 head 與 tail 指標
+      extern volatile uint16_t rx_head;
+      extern volatile uint16_t rx_tail;
+      
+      char debug_info[128];
+      uint32_t sr = huart1.Instance->SR; // 取得 UART1 狀態暫存器
+      
+      sprintf(debug_info, "[Debug] Head:%d, Tail:%d, SR:0x%08lX, State:0x%02X\r\n", 
+              rx_head, rx_tail, sr, huart1.RxState);
+      cdc_write(debug_info);
+    }
+
+    /* 2. 原本的接收邏輯 */
     int n = LoRa_Receive((uint8_t*)line, sizeof(line));
     if (n > 0)
     {
+      cdc_write("[DATA] ");
       cdc_write(line);
       cdc_write("\r\n");
     }
+    
   }
 }
 
