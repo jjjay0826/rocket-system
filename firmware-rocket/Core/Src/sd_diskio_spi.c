@@ -181,24 +181,35 @@ DSTATUS SD_disk_initialize(BYTE pdrv)
     if (pdrv) return STA_NOINIT;
 
     FCLK_SLOW();
-    CS_HIGH();
-    for (n = 10; n; n--) xchg_spi(0xFF);   /* ≥74 時脈喚醒卡 */
-
     ty = 0;
-    /* ── CMD0 特例：跳過 select_card 的 wait_ready，直接送 ─────────────────
-     * 診斷:本模組在 deselect/init 階段 MISO 可能恆低(曾實測讀到 0x00)。
-     * 原 send_cmd→select_card→wait_ready 會一直等「MISO 變 0xFF」等不到 →
-     * 500ms timeout → CMD0 的 6 個 byte 根本沒送出、直接回硬編碼 0xFF。
-     * 這裡 CS 拉低後直接送 CMD0 frame + 讀 R1，繞過 wait_ready。
-     * 判讀:cmd0=01 → 卡有進 idle(wait_ready 是元兇，已解決)；
-     *      cmd0=FF/00 → 卡真的沒回(問題回到卡/SCK/CS 硬體)。*/
-    CS_LOW();
-    for (volatile int i = 0; i < 500; i++) __NOP();   /* 沿用 jx06t 電平穩定延遲 */
-    xchg_spi(0xFF);                                   /* 一個 dummy clock */
-    xchg_spi(0x40 | CMD0);                            /* CMD0 */
-    xchg_spi(0); xchg_spi(0); xchg_spi(0); xchg_spi(0);   /* arg = 0 */
-    xchg_spi(0x95);                                   /* CMD0 CRC */
-    { BYTE r; n = 10; do { r = xchg_spi(0xFF); } while ((r & 0x80) && --n); SD_dbg_cmd0 = r; }
+    SD_dbg_cmd0 = 0xFF;
+
+    /* ── CMD0 送出（含重試）───────────────────────────────────────────────
+     * 兩個已知狀況一起處理：
+     *  (1) 卡「還沒進 SPI 模式」時本模組 MISO 恆低（曾實測 0x00），所以 CMD0
+     *      不能用 send_cmd→wait_ready（會一直等 MISO 變高、timeout）；這裡 CS
+     *      拉低後直接送 frame + 讀 R1，繞過 wait_ready。
+     *  (2) 只按 reset（卡沒斷電）時，卡可能還停在上次 busy/寫入狀態，單次 CMD0
+     *      會失敗（就是偶爾看到的 MOD=1110）。故重試 3 次，每次先多送喚醒時脈
+     *      + 短延遲，給卡時間回 idle。※ 斷電重開仍最可靠，重試只是提高機率。
+     * 判讀：cmd0=01 → 進 idle 成功；cmd0=FF/00 → 卡沒回（查硬體 / 或斷電重開）。*/
+    for (int attempt = 0; attempt < 3; attempt++) {
+        CS_HIGH();
+        for (n = 20; n; n--) xchg_spi(0xFF);   /* 160 時脈：喚醒 + 沖掉上次殘留 */
+        HAL_Delay(2);                          /* 給卡時間結束上次 busy */
+
+        CS_LOW();
+        for (volatile int i = 0; i < 500; i++) __NOP();   /* 電平穩定延遲 */
+        xchg_spi(0xFF);                                   /* 一個 dummy clock */
+        xchg_spi(0x40 | CMD0);                            /* CMD0 */
+        xchg_spi(0); xchg_spi(0); xchg_spi(0); xchg_spi(0);   /* arg = 0 */
+        xchg_spi(0x95);                                   /* CMD0 CRC */
+        { BYTE r; n = 10; do { r = xchg_spi(0xFF); } while ((r & 0x80) && --n); SD_dbg_cmd0 = r; }
+
+        if (SD_dbg_cmd0 == 1) break;   /* 進 idle → 成功，跳出重試 */
+        deselect();
+        HAL_Delay(5);                  /* 沒過 → 等一下再試 */
+    }
     SD_dbg_cmd8 = 0xEE;
     if (SD_dbg_cmd0 == 1) {                /* 進入 idle */
         uint32_t it0 = HAL_GetTick();      /* 初始化 1s 預算 */
