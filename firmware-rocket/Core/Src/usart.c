@@ -143,7 +143,8 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     HAL_NVIC_SetPriority(USART2_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(USART2_IRQn);
   /* USER CODE BEGIN USART2_MspInit 1 */
-
+  /* GPS 降優先序：ISR 內做 NMEA 解析較重，原 prio=0（最高）會搶 USB/LoRa/SysTick */
+  HAL_NVIC_SetPriority(USART2_IRQn, 6, 0);
   /* USER CODE END USART2_MspInit 1 */
   }
 }

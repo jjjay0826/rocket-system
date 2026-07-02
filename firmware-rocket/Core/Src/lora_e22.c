@@ -67,6 +67,19 @@ int LoRa_Init(void)
     tx_busy = 0;
     rx_head = rx_tail = 0;
     LoRa_StartRx();
+
+    /* ⚠ 透傳模式下 STM32 看不到 E22 的 RF 狀態，「回 0」本質只代表 UART/驅動
+     * 已初始化，不保證 E22 有接/有電/RF 能發（上層 mod.lora 同理）。唯一能驗證
+     * E22 存活的是 AUX 腳（上電自檢完成後拉高）。若有接 AUX（啟用 LORA_USE_AUX），
+     * 這裡等它就緒，等不到就回 -1 → 上層 mod.lora=0，反映 E22 沒回應。*/
+#ifdef LORA_USE_AUX
+    {
+        uint32_t t0 = HAL_GetTick();
+        while (!lora_aux_idle()) {
+            if (HAL_GetTick() - t0 > 500) return -1;   /* E22 沒回應（沒接/沒電）*/
+        }
+    }
+#endif
     return 0;
 }
 

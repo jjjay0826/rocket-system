@@ -31,6 +31,18 @@ static float nmea_to_deg(const char* val, const char dir) {
     return (dir == 'S' || dir == 'W') ? -decimal : decimal;
 }
 
+/* 按逗號切 NMEA，保留空欄位。strtok 會把連續逗號當「一個」分隔符、跳過空
+ * 欄位 → 失去定位時（GGA 經緯度欄位變空）後面欄位整排錯位、解出垃圾座標。
+ * 本函式就地把 ',' 改 '\0'，parts[] 指向每一欄（含空字串），回傳欄位數。*/
+static int nmea_split(char *s, char **parts, int max) {
+    int n = 0;
+    if (n < max) parts[n++] = s;
+    for (; *s && n < max; s++) {
+        if (*s == ',') { *s = '\0'; parts[n++] = s + 1; }
+    }
+    return n;
+}
+
 char gnss_time[16] = "000000";  // 初始值，可根據 GNSS 更新
 
 void GNSS_Init(UART_HandleTypeDef *huart) {
@@ -48,23 +60,17 @@ void GNSS_ProcessLine(const char* line) {
     const char *type = line + 3;  /* skip talker id, point to sentence type */
 
     if (strncmp(type, "GGA", 3) == 0) {
-        char* token;
-        char* parts[15];
+        char* parts[16];
         char buf[100];
         strncpy(buf, line, sizeof(buf));
         buf[sizeof(buf)-1] = '\0';
-
-        int i = 0;
-        token = strtok(buf, ",");
-        while (token && i < 15) {
-            parts[i++] = token;
-            token = strtok(NULL, ",");
-        }
+        int i = nmea_split(buf, parts, 16);   /* 保留空欄位，欄位位置固定 */
 
         if (i >= 8) {
             current_data.num_sats = (uint8_t)atoi(parts[7]); /* field 7 = sats used */
         }
-        if (i >= 10 && parts[6][0] != '0') {
+        /* field 6 = fix quality：'0' 或空 = 無定位 → 不更新座標（避免解垃圾）*/
+        if (i >= 10 && parts[6][0] != '0' && parts[6][0] != '\0') {
             current_data.latitude  = nmea_to_deg(parts[2], parts[3][0]);
             current_data.longitude = nmea_to_deg(parts[4], parts[5][0]);
             current_data.altitude  = atof(parts[9]);
@@ -74,10 +80,9 @@ void GNSS_ProcessLine(const char* line) {
         }
     } else if (strncmp(type, "GSV", 3) == 0) {
         /* $GPGSV,totalMsg,msgNum,totalSats,...  field[3] = total sats in view */
-        char buf2[100]; char* p2[5]; int j=0;
+        char buf2[100]; char* p2[6];
         strncpy(buf2, line, sizeof(buf2)); buf2[sizeof(buf2)-1]='\0';
-        char* tok2 = strtok(buf2, ",");
-        while (tok2 && j < 5) { p2[j++] = tok2; tok2 = strtok(NULL, ","); }
+        int j = nmea_split(buf2, p2, 6);
         if (j >= 4 && p2[3][0] >= '0' && p2[3][0] <= '9') {
             uint8_t sv = (uint8_t)atoi(p2[3]);
             /* 累加各星系的 GSV（GPS+BeiDou+GLONASS），只在第一條訊息時更新 */
@@ -90,14 +95,8 @@ void GNSS_ProcessLine(const char* line) {
         char buf[100];
         strncpy(buf, line, sizeof(buf));
         buf[sizeof(buf)-1] = '\0';
-
-        int i = 0;
-        char* token = strtok(buf, ",");
-        while (token && i < 10) {
-            parts[i++] = token;
-            token = strtok(NULL, ",");
-        }
-        if (i >= 7) {
+        int i = nmea_split(buf, parts, 10);
+        if (i >= 8) {
             current_data.speed = atof(parts[7]);  /* km/h field */
         }
     } else if (strncmp(type, "RMC", 3) == 0) {
@@ -132,10 +131,14 @@ GNSS_Data GNSS_GetData(void) {
 static void gnss_parse(const char *nmea) {
     int ok = (strncmp(nmea, "$G",  2) == 0) || (strncmp(nmea, "$BD", 3) == 0);
     if (ok && strncmp(nmea + 3, "RMC", 3) == 0) {
-        // GPRMC 會長這樣：$GPRMC,hhmmss.00,A,....
-        const char *time_ptr = strchr(nmea, ',') + 1;
-        strncpy(gnss_time, time_ptr, 6);
-        gnss_time[6] = '\0';
+        // GPRMC 會長這樣：$GPRMC,hhmmss.00,A,....  → 取 field 1 = time
+        char buf[100]; char *parts[3];
+        strncpy(buf, nmea, sizeof(buf)); buf[sizeof(buf)-1] = '\0';
+        int n = nmea_split(buf, parts, 3);
+        if (n >= 2 && parts[1][0] != '\0') {
+            strncpy(gnss_time, parts[1], 6);
+            gnss_time[6] = '\0';
+        }
     }
 }
 

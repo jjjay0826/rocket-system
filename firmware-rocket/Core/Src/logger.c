@@ -108,6 +108,16 @@ void logger_close(void) {
     f_close(&file);
 }
 
+/* 截掉 8MB 預分配尾巴 → 檔案收斂成實際資料長度（Excel 直接開，無垃圾）。
+ * ⚠ 截掉後預分配就沒了：僅供桌面測試收尾用，截完就該斷電拔卡；
+ *    若之後才起飛，飛行中寫入會邊寫邊配 cluster（有 GC 風險）。*/
+int logger_trunc(void) {
+    if (!sd_ok) return -1;
+    if (f_truncate(&file) != FR_OK) return -1;
+    if (f_sync(&file)     != FR_OK) return -1;
+    return 0;
+}
+
 /* ===== 讀取函式 ===== */
 int logger_open_for_read(void) {
     // 關閉先前的文件（如果是寫模式）
@@ -191,10 +201,8 @@ void logger_read_all_uart(void) {
         }
         if ((size_t)n >= sizeof(formatted)) formatted[sizeof(formatted)-1] = '\0';
 
-        /* 輸出到 UART1 */
-        uart1_write(formatted);
-
-        /* 輸出到 USB CDC (chunked) */
+        /* 輸出到 USB CDC (chunked)。
+         * 注意：uart1_write 已重導成 cdc_write，這裡不可再多叫一次（會每行印兩次）*/
         if (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED) {
             const uint8_t *p = (const uint8_t*)formatted;
             size_t remaining = strlen(formatted);

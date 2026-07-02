@@ -239,7 +239,6 @@ static int lsm6_init(void)
   } else if ((size_t)n >= sizeof(b)) {
     b[sizeof(b)-1] = '\0';
   }
-  uart1_write(b);
   cdc_write(b);
 
   /* WHO_AM_I 接受整個 LSM6DS 家族（暫存器圖相容）：
@@ -475,7 +474,7 @@ int main(void)
     snprintf(b, sizeof(b),
       "MOD: BMP=%d IMU=%d LORA=%d  REF_PRESS=%.2f hPa\r\n",
       mod.bmp585, mod.imu, mod.lora, ref_press);
-    uart1_write(b); cdc_write(b);
+    cdc_write(b);
     if (mod.lora) LoRa_SendStr(b); }
 
   /* ---- IMU 校準（僅在 IMU 成功初始化時執行）---- */
@@ -511,7 +510,7 @@ int main(void)
       az_bias_g = (bias_sum2 / (float)bias_cnt2) - 1.0f;
       char b[64];
       snprintf(b, sizeof(b), "AZ_BIAS=%.5f g (n=%d)\r\n", az_bias_g, bias_cnt2);
-      uart1_write(b); cdc_write(b);
+      cdc_write(b);
     }
   }
 
@@ -520,7 +519,8 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   uint32_t t_imu = 0, t_bmp = 0, t_out = 0, t_lora = 0;
-  uint8_t  sd_init_done = 0;
+  uint8_t  sd_init_done  = 0;
+  uint8_t  sd_init_tries = 0;   /* SD init 重試計數（第一次上電偶發 cmd0 亂碼，隔 3s 再試會好）*/
   uint8_t  lora_tx_pending = 0;   /* 非阻塞 TX：上一封包是否仍在傳送中 */
   float ax=0,ay=0,az=1,gx=0,gy=0,gz=0;
   float press = ref_press, total_g = 1;
@@ -546,7 +546,6 @@ int main(void)
       HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_RESET);
       flight_state = FLIGHT_DEPLOYED;
       land_stable_start = 0;   /* 重置落地計時器 */
-      uart1_write("*** DEPLOYED ***\r\n");
       cdc_write("*** DEPLOYED ***\r\n");
     }
 
@@ -601,9 +600,8 @@ int main(void)
           snprintf(msg, sizeof(msg),
             "*** DEPLOY(A+B) pk=%.1fm now=%.1fm vz=%.2fm/s ***\r\n",
             peak_rel_alt, rel_alt, kf2_v);
-          uart1_write(msg); cdc_write(msg);
+          cdc_write(msg);
         } else {
-          uart1_write("*** DEPLOY(BACKUP T>20s)! ***\r\n");
           cdc_write("*** DEPLOY(BACKUP T>20s)! ***\r\n");
         }
       }
@@ -628,7 +626,6 @@ int main(void)
         lora_tx_pending = 0;
         if (++lora_err_cnt >= MOD_ERR_MAX) {
           mod.lora = 0;
-          uart1_write("WARN: LORA DEAD\r\n");
           cdc_write("WARN: LORA DEAD\r\n");
         }
       }
@@ -640,24 +637,29 @@ int main(void)
     cmd_execute_pending();
     cmd_flush_echo();
 
-    /* ─── SD 卡延遲初始化（啟動後 3 秒）─── */
-    if (!sd_init_done && now >= 3000UL) {
-      sd_init_done = 1;
+    /* ─── SD 卡延遲初始化（啟動後 3 秒；失敗每 3s 自動重試，最多 5 次）───
+     * 實測：第一次上電偶發 cmd0 回亂碼(如 0x3F)，是上電初期電源/訊號未穩；
+     * 過幾秒重試即成功（先前要手動按 reset 才好 → 這裡改成韌體自動重來）。*/
+    if (!sd_init_done && now >= 3000UL + (uint32_t)sd_init_tries * 3000UL) {
       logger_init();
       if (logger_is_ready()) {
+        sd_init_done = 1;
         mod.sdcard = 1;
-        uart1_write("SD: OK\r\n"); cdc_write("SD: OK\r\n");
+        cdc_write("SD: OK\r\n");
       } else {
         extern FRESULT fres;
         extern volatile uint8_t SD_dbg_cmd0, SD_dbg_cmd8, SD_dbg_spi_status;
         extern volatile uint32_t SD_dbg_spierr, SD_dbg_spi_errcode;
-        char e[96];
+        sd_init_tries++;
+        if (sd_init_tries >= 5) sd_init_done = 1;   /* 5 次都失敗才放棄 */
+        char e[112];
         snprintf(e, sizeof(e),
-                 "SD: FAIL (fres=%d cmd0=%02X cmd8=%02X spierr=%lu st=%u ec=0x%lX)\r\n",
+                 "SD: FAIL %u/5%s (fres=%d cmd0=%02X cmd8=%02X spierr=%lu st=%u ec=0x%lX)\r\n",
+                 (unsigned)sd_init_tries, (sd_init_tries >= 5) ? " GIVE-UP" : " retrying",
                  (int)fres, (unsigned)SD_dbg_cmd0, (unsigned)SD_dbg_cmd8,
                  (unsigned long)SD_dbg_spierr, (unsigned)SD_dbg_spi_status,
                  (unsigned long)SD_dbg_spi_errcode);
-        uart1_write(e); cdc_write(e);
+        cdc_write(e);
       }
     }
 
@@ -699,7 +701,6 @@ int main(void)
               vz_neg_start_ms = 0;
               cond_A          = 0;
               cond_B          = 0;
-              uart1_write("*** LAUNCH! ***\r\n");
               cdc_write("*** LAUNCH! ***\r\n");
             }
           } else {
@@ -742,7 +743,6 @@ int main(void)
           /* IMU 讀取連續失敗 → 標記死亡 */
           if (++imu_err_cnt >= MOD_ERR_MAX) {
             mod.imu = 0; imu_ok = 0;
-            uart1_write("WARN: IMU DEAD\r\n");
             cdc_write("WARN: IMU DEAD\r\n");
           }
         }
@@ -785,9 +785,8 @@ int main(void)
           if (baro_confirms) {
             char b[56];
             snprintf(b, sizeof(b), "WARN: IMU DEAD, BARO-CONFIRM alt=%.1fm\r\n", rel_alt);
-            uart1_write(b); cdc_write(b);
+            cdc_write(b);
           } else {
-            uart1_write("WARN: IMU+BMP DEAD, FORCE-LAUNCH(60s)\r\n");
             cdc_write("WARN: IMU+BMP DEAD, FORCE-LAUNCH(60s)\r\n");
           }
         }
@@ -898,7 +897,6 @@ int main(void)
           /* BMP 讀值超範圍 → 連續失敗標記死亡 */
           if (++bmp_err_cnt >= MOD_ERR_MAX) {
             mod.bmp585 = 0;
-            uart1_write("WARN: BMP DEAD\r\n");
             cdc_write("WARN: BMP DEAD\r\n");
           }
         }

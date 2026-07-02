@@ -47,10 +47,11 @@ static uint8_t cmd_idx = 0;
 static volatile uint8_t cmd_pending = 0;
 static char pending_cmd[CMD_BUF_SIZE];
 
-/* ---- Helper: output to both physical UART1 and USB CDC ---------------- */
+/* ---- Helper: command output → USB CDC ----------------------------------
+ * 舊板 debug 走實體 UART1，曾「UART1+CDC 各送一份」；本板 uart1_write 已
+ * 重導成 cdc_write，再成對呼叫會把每段字印兩次 → 只留一份。*/
 static void cmd_out(const char *s)
 {
-  uart1_write(s);
   cdc_write(s);
 }
 
@@ -123,7 +124,6 @@ void cmd_flush_echo(void)
   }
   tmp[n] = '\0';
 
-  uart1_write(tmp);
   cdc_write(tmp);
 }
 
@@ -134,8 +134,9 @@ void cmd_show_help(void)
 {
   cmd_out("\r\n");
   cmd_out("========== Rocket Avionics Commands ==========\r\n");
-  cmd_out("READ   - Dump entire SD log.txt to terminal\r\n");
-  cmd_out("CLEAR  - Erase log file on SD card\r\n");
+  cmd_out("READ   - Dump current SD log to terminal\r\n");
+  cmd_out("TRUNC  - Trim log to real size (run before pulling card on bench)\r\n");
+  cmd_out("CLEAR  - Close current log, start a new one\r\n");
   cmd_out("STATUS - System status summary\r\n");
   cmd_out("HELP   - Show this message\r\n");
   cmd_out("==============================================\r\n");
@@ -174,6 +175,14 @@ static void process_command_exec(const char *cmd)
     logger_init();
     cmd_out(logger_is_ready() ? "Log cleared. SD ready.\r\n\r\n> "
                               : "Log cleared (SD not ready).\r\n\r\n> ");
+  }
+  else if (strncmp(cmd, "TRUNC", 5) == 0)
+  {
+    /* 桌面測試收尾：截掉 8MB 預分配尾巴，之後斷電拔卡即得乾淨 CSV */
+    if (logger_trunc() == 0)
+      cmd_out("\r\nLog truncated to real size. Power off & pull the card.\r\n\r\n> ");
+    else
+      cmd_out("\r\n[ERR] TRUNC failed (SD not ready?)\r\n\r\n> ");
   }
   else if (strncmp(cmd, "STATUS", 6) == 0)
   {

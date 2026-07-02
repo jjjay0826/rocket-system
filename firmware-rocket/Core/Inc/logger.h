@@ -17,6 +17,9 @@ void logger_init(void);
 void logger_write(const char *data);
 void logger_close(void);
 uint8_t logger_is_ready(void);
+/* 把檔案截到目前寫入長度（去掉 8MB 預分配尾巴）。0=OK，-1=失敗/SD未就緒。
+ * 飛行時 LANDED 會自動做；桌面測試用 TRUNC 命令手動觸發。*/
+int  logger_trunc(void);
 
 /* 讀取相關 */
 // 讀取單行（返回讀到的字元數；< 0 表示 EOF 或錯誤）
