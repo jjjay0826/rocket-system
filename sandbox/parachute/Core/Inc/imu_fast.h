@@ -64,7 +64,7 @@ uint16_t ImuFast_Available(void);
 int      ImuFast_Pop(ImuSample_t *s);
 int      ImuFast_GetLatest(ImuSample_t *s);
 
-/* SPI3 佔用控制 */
+/* SPI2 佔用控制（IMU ISR 與 BMP585 主迴圈共用 SPI2） */
 void ImuFast_LockSpi(void);
 void ImuFast_UnlockSpi(void);
 

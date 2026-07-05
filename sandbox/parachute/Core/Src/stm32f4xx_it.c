@@ -23,9 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "usart.h"
-#include "cmd.h"
-#include "gnss.h"
-#include "usbd_cdc_if.h"
+#include "tim.h"
 #include "imu_fast.h"
 /* USER CODE END Includes */
 
@@ -61,6 +59,8 @@
 
 /* External variables --------------------------------------------------------*/
 extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
+extern UART_HandleTypeDef huart1;
+extern UART_HandleTypeDef huart2;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -204,6 +204,48 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+  * @brief This function handles TIM2 global interrupt.
+  */
+void TIM2_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM2_IRQn 0 */
+
+  /* USER CODE END TIM2_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim2);
+  /* USER CODE BEGIN TIM2_IRQn 1 */
+
+  /* USER CODE END TIM2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles USART1 global interrupt.
+  */
+void USART1_IRQHandler(void)
+{
+  /* USER CODE BEGIN USART1_IRQn 0 */
+
+  /* USER CODE END USART1_IRQn 0 */
+  HAL_UART_IRQHandler(&huart1);
+  /* USER CODE BEGIN USART1_IRQn 1 */
+
+  /* USER CODE END USART1_IRQn 1 */
+}
+
+/**
+  * @brief This function handles USART2 global interrupt.
+  */
+void USART2_IRQHandler(void)
+{
+  /* USER CODE BEGIN USART2_IRQn 0 */
+
+  /* USER CODE END USART2_IRQn 0 */
+  HAL_UART_IRQHandler(&huart2);
+  /* USER CODE BEGIN USART2_IRQn 1 */
+
+  /* USER CODE END USART2_IRQn 1 */
+}
+
+/**
   * @brief This function handles USB On The Go FS global interrupt.
   */
 void OTG_FS_IRQHandler(void)
@@ -219,43 +261,15 @@ void OTG_FS_IRQHandler(void)
 
 /* USER CODE BEGIN 1 */
 
-/* TIM2 全域中斷：500Hz IMU 取樣（ImuFast 模組）*/
-extern TIM_HandleTypeDef htim2;
-
-void TIM2_IRQHandler(void)
-{
-  HAL_TIM_IRQHandler(&htim2);
-}
-
+/* TIM2 週期中斷 → 500Hz IMU 取樣（ImuFast 模組）。
+ * 投放測試韌體不用 LoRa/GNSS，USART1/2 IRQ 保留為裸 HAL handler
+ *（NVIC 有開但沒 arm Receive_IT，不會有回呼）。 */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM2)
   {
     ImuFast_Callback();
   }
-}
-
-/* USART1 全域中斷：GPS NMEA 接收（PA10 = RX @ 9600 baud）*/
-void USART1_IRQHandler(void)
-{
-  HAL_UART_IRQHandler(&huart1);
-}
-
-/* USART2 全域中斷：接收 GNSS NMEA 資料 */
-void USART2_IRQHandler(void)
-{
-  HAL_UART_IRQHandler(&huart2);
-}
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    /* PA10 = USART1_RX = GPS TX (ATGM336H-5N31 @ 9600 baud)
-     * GNSS_Process() 內部會重新 arm HAL_UART_Receive_IT，此處不另外呼叫 */
-    GNSS_Process();
-  }
-  /* USART2 未啟用，不需要處理 */
 }
 
 /* USER CODE END 1 */

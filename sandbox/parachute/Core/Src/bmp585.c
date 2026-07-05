@@ -78,6 +78,10 @@ uint8_t BMP585_Init(SPI_HandleTypeDef *hspi)
     /* 讀 CHIP_ID → 0x51=BMP585, 0x50=BMP581, 其他=異常 */
     uint8_t chip_id = 0;
     if (bmp_read_regs(0x01, &chip_id, 1) != HAL_OK) return 0;
+    /* 驗證晶片身分：只有 0x51(BMP585)/0x50(BMP581) 才算真的在。沒接晶片時
+     * SPI 常讀到 0xFF/0x00、bmp_read_regs 仍回 HAL_OK → 這裡擋掉，避免上層
+     * mod.bmp585 誤判存活。*/
+    if (chip_id != 0x51 && chip_id != 0x50) return 0;
 
     /* OSR_CONFIG (0x36): press_en=1(bit6), osr_t=x1, osr_p=x4
        0x40 | 0x02 = 0x42  ← press_en 必須設，否則氣壓輸出為 0 */

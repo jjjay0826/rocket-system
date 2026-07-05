@@ -1,11 +1,10 @@
 /*
- * logger.c
+ * logger.c — 黑丸版（SPI SD + FATFS User-defined：USERFatFS/USERPath）
  *
  *  Created on: Jun 2, 2025
  *      Author: user
  */
 #include "logger.h"
-#include "gnss.h"      // 提供 gnss_time
 #include <string.h>
 #include <stdio.h>
 #include "sdcard.h"
@@ -13,7 +12,7 @@
 #include "usbd_cdc_if.h"
 extern USBD_HandleTypeDef hUsbDeviceFS;
 
-/* 使用 CubeMX 正確的 FATFS 物件（SDFatFS/SDPath 來自 fatfs.h）*/
+/* CubeMX FATFS(User-defined) 物件：USERFatFS/USERPath 來自 fatfs.h */
 extern FIL file;
 FRESULT fres;
 
@@ -37,17 +36,23 @@ void logger_set_name(const char *name) {
     log_name[sizeof(log_name) - 1] = '\0';
 }
 
+const char *logger_name(void) { return log_name; }
+
 /* 只做 mount + 綁定驅動，不開檔。回傳 1=成功。
- * 供 main 開機時先 mount → 掃序號 → set_name → logger_open。 */
+ * 供 main 開機時先 mount → 掃序號 → set_name → logger_open。
+ * ★ 先 f_mount(NULL) 註銷再重掛：若卡片曾瞬斷自行重置、或剛做過
+ *   SD_disk_initialize 硬重置，強制 FatFS 重讀 FAT（不吃舊快取）。 */
 uint8_t logger_mount(void) {
     sd_ok = 0;
-    /* 首次呼叫才綁定 SDIO 驅動（MX_FATFS_Init 只能呼叫一次）*/
+    /* 首次呼叫才綁定驅動（MX_FATFS_Init 只能呼叫一次）*/
     if (!fatfs_linked) {
         MX_FATFS_Init();
         fatfs_linked = 1;
+    } else {
+        f_mount(NULL, USERPath, 0);   /* 註銷舊掛載，強制重新 find_volume */
     }
     /* opt=1：立即掛載，無卡時直接返回 FR_NODISK，不需等到 f_open 才超時 */
-    fres = f_mount(&SDFatFS, SDPath, 1);
+    fres = f_mount(&USERFatFS, USERPath, 1);
     return (fres == FR_OK) ? 1U : 0U;
 }
 
@@ -84,8 +89,9 @@ void logger_write(const char *data) {
     /* SD 卡未就緒或正在讀取，跳過 */
     if (!sd_ok || logger_reading) return;
 
-    // 組合內容格式：[hhmmss] 資料內容
-    snprintf(line, sizeof(line), "[%s] %s\r\n", gnss_time, data);
+    // 組合內容格式：[時間ms] 資料內容（黑丸版無 GNSS，改用系統 tick）
+    snprintf(line, sizeof(line), "[%lu] %s\r\n",
+             (unsigned long)HAL_GetTick(), data);
 
     // 寫入檔案
     fres = f_write(&file, line, strlen(line), &bw);
@@ -123,7 +129,7 @@ int logger_read_line(char *buffer, uint16_t max_len) {
     // 逐字元讀取，直到換行或檔案結尾
     while (idx < max_len - 1) {
         fres = f_read(&file, &c, 1, &br);
-        
+
         // 讀取失敗或 EOF
         if (fres != FR_OK || br == 0) {
             buffer[idx] = '\0';
@@ -157,7 +163,7 @@ void logger_read_all_uart(void) {
 
     // 開啟檔案以供讀取
     if (logger_open_for_read() != 0) {
-        uart1_write("Failed to open log.txt\r\n");
+        uart1_write("Failed to open log file\r\n");
         logger_reading = 0;
         /* logger_open_for_read 已 f_close(file)：必須重新開回寫入模式，
          * 否則 file 留在關閉狀態 → 之後所有寫入 FR_INVALID_OBJECT (fw=9) */
@@ -184,24 +190,8 @@ void logger_read_all_uart(void) {
         }
         if ((size_t)n >= sizeof(formatted)) formatted[sizeof(formatted)-1] = '\0';
 
-        /* 輸出到 UART1 */
+        /* 輸出到 UART1（黑丸版＝轉 CDC）*/
         uart1_write(formatted);
-
-        /* 輸出到 USB CDC (chunked) */
-        if (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED) {
-            const uint8_t *p = (const uint8_t*)formatted;
-            size_t remaining = strlen(formatted);
-            while (remaining > 0) {
-                uint16_t chunk = (uint16_t)(remaining > 64 ? 64 : remaining);
-                uint32_t t0 = HAL_GetTick();
-                while (CDC_Transmit_FS((uint8_t*)p, chunk) == USBD_BUSY) {
-                    if (HAL_GetTick() - t0 > 200) break;
-                    HAL_Delay(2);
-                }
-                p += chunk;
-                remaining -= chunk;
-            }
-        }
         line_num++;
     }
 
@@ -212,4 +202,3 @@ void logger_read_all_uart(void) {
     logger_reading = 0;
     logger_init();
 }
-

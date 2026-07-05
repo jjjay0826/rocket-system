@@ -1,5 +1,8 @@
 /*
- * imu_fast.c - 500Hz IMU 高速記錄模組（v2，Blocking SPI）
+ * imu_fast.c - 500Hz IMU 高速記錄模組（v2，Blocking SPI）— 黑丸版
+ *
+ * 硬體：LSM6DSOTR on SPI2（PB13/14/15，mode 3），CS = IMU_CS_N（PA8）
+ *（舊 SDIO 自製板為 SPI3/PB1；黑丸版載板改 SPI2/PA8，CS 用 CubeMX label 自動跟板）
  *
  * 本版採用 Blocking SPI（與原始版相同），但新增：
  *   1. Mahony 互補濾波器移入 ISR（500Hz）
@@ -16,10 +19,10 @@
 #include <string.h>
 #include <math.h>
 
-extern SPI_HandleTypeDef hspi3;
+extern SPI_HandleTypeDef hspi2;
 
-#define IMU_CS_PORT   GPIOB
-#define IMU_CS_PIN    GPIO_PIN_1
+#define IMU_CS_PORT   IMU_CS_N_GPIO_Port   /* CubeMX label「IMU_CS_N」= PA8 */
+#define IMU_CS_PIN    IMU_CS_N_Pin
 #define IMU_CS_LOW()  HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_RESET)
 #define IMU_CS_HIGH() HAL_GPIO_WritePin(IMU_CS_PORT, IMU_CS_PIN, GPIO_PIN_SET)
 
@@ -153,7 +156,7 @@ void ImuFast_Callback(void)
                        0,0,0,0,0,0,0,0,0,0,0,0 };
     uint8_t rx[13] = {0};
     IMU_CS_LOW();
-    HAL_SPI_TransmitReceive(&hspi3, tx, rx, 13, 2);
+    HAL_SPI_TransmitReceive(&hspi2, tx, rx, 13, 2);
     IMU_CS_HIGH();
 
     /* ── 解碼 ── */
@@ -169,13 +172,16 @@ void ImuFast_Callback(void)
     s->vz_ms  = imu_fast_vz_ms;
     s->hz_m   = imu_fast_hz_m;
 
-    /* ── 物理量換算（含偏移）── */
+    /* ── 物理量換算（含偏移）──
+     * 陀螺 ±2000dps 靈敏度 = 70 mdps/LSB（LSM6DS3 DS p.20 Table 3）
+     * → 1/0.070 = 14.286 LSB/dps。舊值 16.384（=32768/2000 理想映射）
+     *   讓角速度系統性偏低 12.8%，快速翻滾時姿態滯後。 */
     float ax_g = (float)s->ax / 2048.0f - mah_ax_b;
     float ay_g = (float)s->ay / 2048.0f - mah_ay_b;
     float az_g = (float)s->az / 2048.0f;
-    float gx_r = (float)s->gx / 16.384f * DEG2RAD - mah_gbx;
-    float gy_r = (float)s->gy / 16.384f * DEG2RAD - mah_gby;
-    float gz_r = (float)s->gz / 16.384f * DEG2RAD - mah_gbz;
+    float gx_r = (float)s->gx / 14.286f * DEG2RAD - mah_gbx;
+    float gy_r = (float)s->gy / 14.286f * DEG2RAD - mah_gby;
+    float gz_r = (float)s->gz / 14.286f * DEG2RAD - mah_gbz;
 
     /* ── 自適應 Kp/Ki ── */
     float acc_n = sqrtf(ax_g*ax_g + ay_g*ay_g + az_g*az_g);
@@ -219,7 +225,8 @@ int ImuFast_GetLatest(ImuSample_t *s)
     return 0;
 }
 
-/* LockSpi：簡單設旗標即可，無 DMA 無需等待 */
+/* LockSpi：簡單設旗標即可，無 DMA 無需等待
+ * （SPI2 由 IMU ISR 與 BMP585 主迴圈共用：主迴圈讀 BMP 前 Lock）*/
 void ImuFast_LockSpi(void)   { spi_lock = 1; }
 void ImuFast_UnlockSpi(void) { spi_lock = 0; }
 

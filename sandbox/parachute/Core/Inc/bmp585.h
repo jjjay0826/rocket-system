@@ -5,11 +5,11 @@
 #define __BMP585_H
 
 #include "stm32f4xx_hal.h"
+#include "main.h"      /* CubeMX User Label 生成的 BARO_CS_Pin / BARO_CS_GPIO_Port */
 
-/* BMP585 CS 腳位：共用 SPI3 (PB12=SCK, PB4=MISO, PB5=MOSI)
-   如果你的 CSB 接的不是 PB10，改這裡 */
-#define BMP_CS_PORT  GPIOB
-#define BMP_CS_PIN   GPIO_PIN_0
+/* BMP585 CS 腳位 = CubeMX label「BARO_CS」(PB12)；換板只改 CubeMX，這裡自動跟著走 */
+#define BMP_CS_PORT  BARO_CS_GPIO_Port
+#define BMP_CS_PIN   BARO_CS_Pin
 
 uint8_t  BMP585_Init(SPI_HandleTypeDef *hspi); // 回傳 chip_id (0x51=BMP585, 0x50=BMP581, 0=無回應)
 float    BMP585_ReadPressure(void);            // 回傳氣壓 (hPa)

@@ -1,5 +1,5 @@
 /*
- * logger.h
+ * logger.h — 黑丸版（SPI SD + FATFS User-defined）
  *
  *  Created on: Jun 2, 2025
  *      Author: user
@@ -21,9 +21,10 @@ uint8_t logger_is_ready(void);
 /* 序號檔名支援：main 開機時 logger_mount() → 掃序號 → logger_set_name()
  * → logger_open()，使 LOG 檔與 CSV 同號且每次開機開新檔（不覆蓋舊資料）。
  * 恢復路徑用 logger_init()（mount+open），自動沿用已設定的 log_name。 */
-void    logger_set_name(const char *name);
-uint8_t logger_mount(void);
-void    logger_open(void);
+void        logger_set_name(const char *name);
+const char *logger_name(void);
+uint8_t     logger_mount(void);
+void        logger_open(void);
 
 /* 讀取相關 */
 // 讀取單行（返回讀到的字元數；< 0 表示 EOF 或錯誤）

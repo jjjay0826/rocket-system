@@ -41,3 +41,4 @@ Desktop.ini
 #   *.ld                   → linker script
 #   *.launch               → 除錯啟動設定
 #   Core/ Drivers/ FATFS/ Middlewares/ USB_DEVICE/ Application/ → 原始碼與 HAL
+*.launch

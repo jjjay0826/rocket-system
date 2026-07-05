@@ -15,6 +15,6 @@ UINT bw;
 
 void sd_write_log(void) {
 	MX_FATFS_Init();
-	f_mount(&SDFatFS, (TCHAR const*)SDPath, 1);
+	f_mount(&USERFatFS, (TCHAR const*)USERPath, 1);
 }
 

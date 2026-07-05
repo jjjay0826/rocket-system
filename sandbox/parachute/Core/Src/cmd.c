@@ -1,7 +1,8 @@
 /*
  * cmd.c
  *
- * Command system — input via UART1 or USB CDC.
+ * Command system — input via USB CDC (UART1 on this board is the LoRa header;
+ * uart1_write is aliased to CDC in main.c).
  * Key design: cmd_handle_char() is called from ISR/USB context, so it must
  * never block. Heavy work (SD read, printf) runs in cmd_execute_pending()
  * from the main loop.
@@ -11,15 +12,14 @@
 #include <stdio.h>
 #include "logger.h"   /* includes fatfs.h → f_unlink, FIL, etc. */
 #include "main.h"
-#include "usart.h"
 
-/* Provided by main.c (non-static); both go to their respective buses */
+/* Provided by main.c (non-static) */
 extern void uart1_write(const char *s);
 extern void cdc_write(const char *s);
 
 /* ---- Deferred echo ring buffer ----------------------------------------
- * cmd_handle_char() (USB/UART ISR) pushes raw bytes here.
- * cmd_flush_echo()  (main loop)    drains them in bulk to UART1 + CDC.
+ * cmd_handle_char() (USB ISR)  pushes raw bytes here.
+ * cmd_flush_echo()  (main loop) drains them in bulk to CDC.
  * 8-bit atomic head/tail: safe for single-producer / single-consumer.
  * ----------------------------------------------------------------------- */
 #define ECHO_Q_SIZE 128
@@ -47,10 +47,9 @@ static uint8_t cmd_idx = 0;
 static volatile uint8_t cmd_pending = 0;
 static char pending_cmd[CMD_BUF_SIZE];
 
-/* ---- Helper: output to both physical UART1 and USB CDC ---------------- */
+/* ---- Helper: output to USB CDC ----------------------------------------- */
 static void cmd_out(const char *s)
 {
-  uart1_write(s);
   cdc_write(s);
 }
 
@@ -61,7 +60,7 @@ static void cmd_out(const char *s)
  * ====================================================================== */
 void cmd_handle_char(uint8_t c)
 {
-  /* Discard garbage / non-printable bytes (e.g. floating UART1 RX noise).
+  /* Discard garbage / non-printable bytes.
    * Accept: printable ASCII 0x20-0x7E, CR, LF, BS, DEL. */
   if (!( c == 0x08 || c == 0x0A || c == 0x0D || c == 0x7F
          || (c >= 0x20 && c <= 0x7E) )) {
@@ -123,26 +122,25 @@ void cmd_flush_echo(void)
   }
   tmp[n] = '\0';
 
-  uart1_write(tmp);
   cdc_write(tmp);
 }
 
 /* ======================================================================
- * cmd_show_help — show available commands on both UART1 and CDC.
+ * cmd_show_help — show available commands.
  * ====================================================================== */
 void cmd_show_help(void)
 {
   cmd_out("\r\n");
-  cmd_out("========== Rocket Avionics Commands ==========\r\n");
-  cmd_out("READ   - Dump entire SD log.txt to terminal\r\n");
-  cmd_out("CLEAR  - Erase log file on SD card\r\n");
+  cmd_out("====== Parachute Drop-Test Commands ======\r\n");
+  cmd_out("READ   - Dump current LOG_xxx.TXT to terminal\r\n");
+  cmd_out("CLEAR  - Erase current log file on SD card\r\n");
   cmd_out("STATUS - System status summary\r\n");
   cmd_out("HELP   - Show this message\r\n");
-  cmd_out("==============================================\r\n");
+  cmd_out("===========================================\r\n");
   cmd_out("Note: SD card saves data automatically.\r\n");
-  cmd_out("      To retrieve log without USB, remove SD\r\n");
-  cmd_out("      card and read log.txt on a PC.\r\n");
-  cmd_out("==============================================\r\n\r\n");
+  cmd_out("      IMU_xxx.CSV (500Hz) + LOG_xxx.TXT pair\r\n");
+  cmd_out("      per boot. Remove card to read on a PC.\r\n");
+  cmd_out("===========================================\r\n\r\n");
   cmd_out("> ");
 }
 
@@ -158,7 +156,7 @@ static void process_command_exec(const char *cmd)
 
   if (strncmp(cmd, "READ", 4) == 0)
   {
-    cmd_out("\r\n===== Reading SD Card Log (log.txt) =====\r\n");
+    cmd_out("\r\n===== Reading SD Card Log =====\r\n");
     logger_read_all_uart();
     cmd_out("===== End of Log =====\r\n\r\n> ");
   }
@@ -170,21 +168,21 @@ static void process_command_exec(const char *cmd)
   {
     cmd_out("Clearing SD log...\r\n");
     logger_close();
-    f_unlink("log.txt");
+    f_unlink(logger_name());   /* 刪目前序號檔（舊版寫死 "log.txt" 刪不到）*/
     logger_init();
     cmd_out(logger_is_ready() ? "Log cleared. SD ready.\r\n\r\n> "
                               : "Log cleared (SD not ready).\r\n\r\n> ");
   }
   else if (strncmp(cmd, "STATUS", 6) == 0)
   {
-    char sb[128];
+    char sb[160];
     snprintf(sb, sizeof(sb),
-             "\r\n=== Status ===\r\n"
-             "SD: %s\r\n"
-             "IMU: LSM6DSOTR (SPI3, CS=PB1)\r\n"
-             "Baro: BMP585 (SPI3)\r\n"
-             "GNSS: ATGM336H (UART2, PA3)\r\n\r\n> ",
-             logger_is_ready() ? "OK (log.txt open)" : "NOT READY");
+             "\r\n=== Status (black pill carrier) ===\r\n"
+             "SD:   %s (%s, SPI1 CS=PA4)\r\n"
+             "IMU:  LSM6DS3 (GY module, SPI2, CS=PA8)\r\n"
+             "Baro: BMP585 (SPI2, CS=PB12)\r\n\r\n> ",
+             logger_is_ready() ? "OK" : "NOT READY",
+             logger_name());
     cmd_out(sb);
   }
   else
