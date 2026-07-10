@@ -18,7 +18,7 @@
  * ────────────────────────────────────────── */
 typedef struct __attribute__((packed)) {
     uint32_t ts_us;        /* 時間戳記（µs，自 ImuFast_Init 起算）*/
-    int16_t  gx, gy, gz;  /* 角速度原始值（LSB, ÷16.384 → dps） */
+    int16_t  gx, gy, gz;  /* 角速度原始值（LSB, ÷14.286 → dps；±2000dps=70mdps/LSB）*/
     int16_t  ax, ay, az;  /* 加速度原始值（LSB, ÷2048  → g）    */
     float    baro_m;       /* 最新氣壓相對高度（m）               */
     float    vz_ms;        /* KF2 垂直速度（m/s）                 */

@@ -378,9 +378,9 @@ int main(void)
       int16_t rt,rgx,rgy,rgz,rax,ray,raz;
       if (lsm6_read_raw_LSM6DSOTR(&rt,&rgx,&rgy,&rgz,&rax,&ray,&raz)==0) {
         float a_x=rax/16384.f, a_y=ray/16384.f, a_z=raz/16384.f;
-        float g_x=rgx/16.384f*0.017453293f;
-        float g_y=rgy/16.384f*0.017453293f;
-        float g_z=rgz/16.384f*0.017453293f;
+        float g_x=rgx/14.286f*0.017453293f;
+        float g_y=rgy/14.286f*0.017453293f;
+        float g_z=rgz/14.286f*0.017453293f;
         mahony_update(a_x,a_y,a_z,g_x,g_y,g_z,0.01f);
       }
     }
@@ -391,9 +391,9 @@ int main(void)
       int16_t rt,rgx,rgy,rgz,rax,ray,raz;
       if (lsm6_read_raw_LSM6DSOTR(&rt,&rgx,&rgy,&rgz,&rax,&ray,&raz)==0) {
         float a_x=rax/16384.f, a_y=ray/16384.f, a_z=raz/16384.f;
-        float g_x=rgx/16.384f*0.017453293f;
-        float g_y=rgy/16.384f*0.017453293f;
-        float g_z=rgz/16.384f*0.017453293f;
+        float g_x=rgx/14.286f*0.017453293f;
+        float g_y=rgy/14.286f*0.017453293f;
+        float g_z=rgz/14.286f*0.017453293f;
         mahony_update(a_x,a_y,a_z,g_x,g_y,g_z,0.01f);
         bias_sum2 += world_az(a_x,a_y,a_z);
         bias_cnt2++;
@@ -448,9 +448,9 @@ int main(void)
         ay = (float)raw_ay / 16384.f;
         az = (float)raw_az / 16384.f;
         float deg2rad = 0.017453293f;
-        gx = (float)raw_gx / 16.384f * deg2rad;
-        gy = (float)raw_gy / 16.384f * deg2rad;
-        gz = (float)raw_gz / 16.384f * deg2rad;
+        gx = (float)raw_gx / 14.286f * deg2rad;
+        gy = (float)raw_gy / 14.286f * deg2rad;
+        gz = (float)raw_gz / 14.286f * deg2rad;
         tc = (float)raw_t / 256.f + 25.f;
         total_g = sqrtf(ax*ax+ay*ay+az*az);
 

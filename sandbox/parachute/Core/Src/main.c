@@ -592,10 +592,23 @@ int main(void)
           csv_retry_len = 0;
           /* 寫入 CSV 標頭 */
           UINT bw_hdr = 0;
-          const char *hdr = "ts_us,gx_dps,gy_dps,gz_dps,ax_g,ay_g,az_g,g_tot,baro_m,vz_ms,imu_hz_m\n";
-          f_write(&imu_fil, hdr, strlen(hdr), &bw_hdr);
-          { char msg[32]; snprintf(msg,sizeof(msg),"%s: OK\r\n",csv_name);
+          /* 欄位名精確化：vz/高度兩欄存的都是 KF2（Kalman）值，
+           * 舊名 vz_ms / imu_hz_m 誤導（imu_hz_m 掛「imu」卻存 kf2_h，
+           * 是舊 PI 時代殘留）→ 改 kf_vz_ms / kf_h_m，餵 AI 不再認錯。
+           * baro_m = 裸氣壓相對高度（保留）。資料行是位置對應，不用改。*/
+          const char *hdr = "ts_us,gx_dps,gy_dps,gz_dps,ax_g,ay_g,az_g,g_tot,baro_m,kf_vz_ms,kf_h_m\n";
+          /* 建檔即持久（與 LOG 的 BOOT 行同等待遇）：否則首次持久點在
+           * 首個 4 批 sync（~0.5s）後，墜機重開機的幽靈開機仍可能留下
+           * 0-byte CSV。header 寫入/沖洗結果要檢查——失敗照報 OK 會讓
+           * 幽靈開機修復變成機率性的（code-review S3）。 */
+          FRESULT fr_hdr = f_write(&imu_fil, hdr, strlen(hdr), &bw_hdr);
+          if (fr_hdr == FR_OK && bw_hdr == (UINT)strlen(hdr))
+            fr_hdr = f_sync(&imu_fil);
+          { char msg[40];
+            snprintf(msg, sizeof(msg), "%s: %s\r\n", csv_name,
+                     (fr_hdr == FR_OK) ? "OK" : "OK (HDR-ERR)");
             cdc_write(msg); }
+          if (fr_hdr != FR_OK) csv_err_cnt++;
           /* SYNC 標記：寫入 LOG，記錄同一瞬間的兩種時間基準，
            * 事後分析可用 T(ms) − ts_us(µs)/1000 對齊 LOG 與 CSV 時間軸 */
           { char sm[64]; UINT bw_s = 0;
@@ -685,6 +698,22 @@ int main(void)
            * imu_hz_m = KF2 融合高度                        */
           imu_fast_vz_ms  = kf2_v;
           imu_fast_hz_m   = kf2_h;
+
+          /* ★ 落地即刻搶救（純 IMU 路徑）：>6g 且下降中 → 馬上把 CSV
+           * 沖進 FAT，跟「電池被撞飛斷電」賽跑（實證兩次的死法）。
+           * 刻意不放在落地狀態機（氣壓閘門內）：撞擊瞬間正是 BMP 最易
+           * 讀值異常的時刻，閘門內的搶救在最該工作的場景反而不執行。
+           * 節流 2s：防彈跳落地重入連發 sync；失敗計入 csv_err_cnt
+           * 留痕（e 計數），不再靜默。已寫入的終端速度段變持久；
+           * 撞擊尖峰本身還在 ring buffer，需電源再活 ~0.2s 才排得出。*/
+          {
+            static uint32_t rescue_t = 0;
+            if (total_g > 6.0f && kf2_v < -1.0f && imu_fil_open
+                && now - rescue_t >= 2000UL) {
+              rescue_t = now;
+              if (f_sync(&imu_fil) != FR_OK) csv_err_cnt++;
+            }
+          }
         } else {
           /* IMU 讀取連續失敗 → 標記死亡 */
           if (++imu_err_cnt >= MOD_ERR_MAX) {
@@ -831,6 +860,10 @@ int main(void)
                   land_state = LAND_IMPACT;
                   land_t0    = now;
                   land_baro0 = rel_alt;
+                  /* 落地搶救 f_sync 不放這裡：本狀態機包在氣壓閘門內
+                   * （mod.bmp585 + p_raw 範圍），而撞擊瞬間正是 BMP 最易
+                   * 讀值異常的時刻（氣孔遮蔽/電壓凹陷，皆實證）——
+                   * 搶救已移至 10ms IMU 塊的純 IMU 路徑（code-review S4）*/
               }
               break;
           case LAND_IMPACT:
@@ -933,12 +966,18 @@ int main(void)
         FRESULT fr_csv = f_write(&imu_fil, csv_buf, (UINT)csv_len, &bw);
         static uint16_t imu_sync_cnt = 0;
         if (fr_csv == FR_OK && bw == (UINT)csv_len) {
-          if (++imu_sync_cnt >= 16) {
+          /* 每 4 批（512ms）sync：斷電尾段損失 2s→0.5s（電池噴飛實證×2）。
+           * ★ sync 失敗與寫入失敗分開處理：此時資料「已在檔內」，
+           *   絕不可標成寫入失敗進 retry buffer 重寫——那會產生
+           *   64 列重複（code-review C9）。FatFS 的 f_sync 失敗走
+           *   LEAVE_FF、不設 fp->err 閂鎖（ff.c:3732），下一輪
+           *   f_write/f_sync 會自然重試沖洗；這裡只記帳留痕。   */
+          if (++imu_sync_cnt >= 4) {
             imu_sync_cnt = 0;
-            if (f_sync(&imu_fil) != FR_OK) fr_csv = FR_DISK_ERR;
+            if (f_sync(&imu_fil) != FR_OK) csv_err_cnt++;
           }
         } else if (fr_csv == FR_OK) {
-          fr_csv = FR_DISK_ERR;
+          fr_csv = FR_DISK_ERR;   /* 短寫（bw != csv_len）＝真寫入失敗 */
         }
         if (fr_csv != FR_OK) {
           /* 把這批存進 retry buffer，下次迴圈優先補寫，避免資料丟失 */
@@ -961,6 +1000,34 @@ int main(void)
           imu_fil_open  = 1;
           csv_retry_len = 0;
         }
+      }
+    }
+
+    /* ─── 防假死排空（無條件）───────────────────────────────
+     * SD 死亡/開檔失敗時 CSV 排空停擺 → ring buffer 4.1s 填滿 →
+     * ISR 不再取樣 → GetLatest 永遠回同一筆舊樣 → 遙測/KF2/落地
+     * 偵測全被凍結值毒化（imu 板 IMU_001 全空+Ax 凍結實案）。
+     * 逼近全滿（>1900 ≈ 排空已停 3.7s，正常運作永遠到不了）時
+     * 丟棄最舊樣本、保留最近 2s：超過 4s 的資料反正救不回，
+     * 犧牲舊樣換 ISR 與即時值持續活著。                        */
+    {
+      uint16_t av = ImuFast_Available();
+      /* 門檻從 IMUFAST_BUF_SIZE 推導（勿寫死：ring 曾 1024→2048 改過一次，
+       * 寫死值在改大小後會讓保險絲靜默失效——code-review）。
+       * 觸發＝逼近全滿（-128）；清到半滿。 */
+      if (av > (uint16_t)(IMUFAST_BUF_SIZE - 128U)) {
+        ImuSample_t d;
+        uint16_t dropped = 0;
+        while (av > (uint16_t)(IMUFAST_BUF_SIZE / 2U)) {
+          ImuFast_Pop(&d); av--; dropped++;
+        }
+        /* 記帳（code-review C10）：丟樣必須留痕——計入 e 計數＋CDC 告警，
+         * 否則事後只剩 CSV 裡一個無聲的 ts_us 跳躍 */
+        csv_err_cnt++;
+        { char m[48];
+          snprintf(m, sizeof(m), "RING: DROP %u samples (SD stalled)\r\n",
+                   (unsigned)dropped);
+          cdc_write(m); }
       }
     }
 

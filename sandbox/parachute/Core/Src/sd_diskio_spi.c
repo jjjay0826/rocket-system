@@ -2,8 +2,8 @@
  * sd_diskio_spi.c - SD/SDHC SPI 模式 diskio（rocket_v2）
  * SPI1 + CS=PA4。基於 ChaN MMC/SDC SPI 參考實作，移植 STM32 HAL。
  *
- * 速度：init 階段 <400kHz（prescaler 256），資料階段 ~5MHz（prescaler 16，
- *       經 Arduino 模組的 74LVC125 電平轉換較保守、可靠）。
+ * 速度：init 階段 328kHz（prescaler 256），資料階段 656kHz（prescaler 128）。
+ *       ⚠ 勿調快：5.25MHz 實測過 74HC125+排針走線會位元亂碼（見 FCLK_FAST 註解）。
  * 注意：需週期呼叫 SD_disk_timerproc()（每 ~10ms）讓逾時計數遞減。
  */
 #include "sd_diskio_spi.h"
@@ -52,8 +52,11 @@ static void FCLK_SLOW(void)  /* <400kHz：APB2 84MHz / 256 = 328kHz */
 { MODIFY_REG(SD_SPI->Instance->CR1, SPI_CR1_BR, SPI_BAUDRATEPRESCALER_256); }
 static void FCLK_FAST(void)  /* 資料階段 656kHz（84MHz/128）
  * 原為 /16=5.25MHz：實測 CSV 內容出現位元亂碼（每行開頭欄位被打壞），
- * 5.25MHz 過 74HC125+排針+載板走線疑似邊際。本案寫入需求僅 ~200B/s，
- * 656kHz 仍有數百倍餘裕，可靠優先。（jx06t 降速只降到 init，此處才是資料段）*/
+ * 5.25MHz 過 74HC125+排針+載板走線疑似邊際。（jx06t 降速只降到 init，此處才是資料段）
+ * ⚠ 吞吐餘裕（parachute 500Hz CSV）：需求 ~42.5KB/s，656kHz 實效 ~55-65KB/s
+ *   → 餘裕僅 ~1.3-1.5×（實測 IMU_019/020 零缺口，夠用但別再加 CSV 欄位/負載）。
+ *   需要更多裕度時先試 /64=1.31MHz 並驗證整檔無亂碼再採用。
+ *  （火箭飛行韌體已改 50Hz 飛行 CSV ≈ 7-9KB/s，餘裕 ~6-9×，同樣別亂加。）*/
 { MODIFY_REG(SD_SPI->Instance->CR1, SPI_CR1_BR, SPI_BAUDRATEPRESCALER_128); }
 
 static BYTE xchg_spi(BYTE dat)
