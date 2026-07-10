@@ -169,12 +169,17 @@ static void process_command_exec(const char *cmd)
   }
   else if (strncmp(cmd, "CLEAR", 5) == 0)
   {
-    cmd_out("Clearing SD log...\r\n");
+    /* 語意＝HELP 所述「關閉目前 log、滾動開下一個 logN.csv」。
+     * 不刪任何舊檔（滾動檔名本來就不覆寫飛行資料）。
+     * 舊版 f_unlink("log.txt") 是死操作：滾動檔名時代該檔不存在。
+     * 關檔前先截斷 8MB 預分配尾巴，舊檔收斂成乾淨 CSV。 */
+    cmd_out("Closing current log, starting a new one...\r\n");
+    if (logger_trunc() != 0)
+      cmd_out("[WARN] truncate failed - old log keeps 8MB tail\r\n");
     logger_close();
-    f_unlink("log.txt");
     logger_init();
-    cmd_out(logger_is_ready() ? "Log cleared. SD ready.\r\n\r\n> "
-                              : "Log cleared (SD not ready).\r\n\r\n> ");
+    cmd_out(logger_is_ready() ? "New log started. SD ready.\r\n\r\n> "
+                              : "[ERR] New log failed (SD not ready).\r\n\r\n> ");
   }
   else if (strncmp(cmd, "TRUNC", 5) == 0)
   {

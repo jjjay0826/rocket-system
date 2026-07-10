@@ -76,12 +76,12 @@ extern UART_HandleTypeDef huart2;
 void NMI_Handler(void)
 {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
-
+  /* CSS(HSE 飛行中失效)會走 NMI 進來:清旗標並呼叫 HAL_RCC_CSSCallback
+   * (main.c)降級 HSI 84MHz → 飛控續跑。 */
+  HAL_RCC_NMI_IRQHandler();
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
-   while (1)
-  {
-  }
+  /* ★不可 while(1) 卡死:CSS 處理完必須返回,開傘狀態機才能繼續 */
   /* USER CODE END NonMaskableInt_IRQn 1 */
 }
 

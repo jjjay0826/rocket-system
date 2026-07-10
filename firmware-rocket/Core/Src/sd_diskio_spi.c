@@ -52,8 +52,9 @@ static void FCLK_SLOW(void)  /* <400kHz：APB2 84MHz / 256 = 328kHz */
 { MODIFY_REG(SD_SPI->Instance->CR1, SPI_CR1_BR, SPI_BAUDRATEPRESCALER_256); }
 static void FCLK_FAST(void)  /* 資料階段 656kHz（84MHz/128）
  * 原為 /16=5.25MHz：實測 CSV 內容出現位元亂碼（每行開頭欄位被打壞），
- * 5.25MHz 過 74HC125+排針+載板走線疑似邊際。本案寫入需求僅 ~200B/s，
- * 656kHz 仍有數百倍餘裕，可靠優先。（jx06t 降速只降到 init，此處才是資料段）*/
+ * 5.25MHz 過 74HC125+排針+載板走線疑似邊際。（jx06t 降速只降到 init，此處才是資料段）
+ * ⚠ 吞吐：飛行中 50Hz CSV ≈ 7-9KB/s，656kHz 實效 ~55-65KB/s → 餘裕 ~6-9×
+ *  （非舊註解的「數百倍」——加欄位/提速前先重算）。 */
 { MODIFY_REG(SD_SPI->Instance->CR1, SPI_CR1_BR, SPI_BAUDRATEPRESCALER_128); }
 
 static BYTE xchg_spi(BYTE dat)

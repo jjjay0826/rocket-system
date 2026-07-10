@@ -134,6 +134,9 @@ static uint32_t      deploy_time_ms = 0;   /* HAL_GetTick() at deploy */
 #define LAND_LOG_INTERVAL 5000UL    /* 落地後每 5s 寫一筆 LoRa beacon */
 static uint32_t land_stable_start = 0;  /* 靜止條件開始計時的 tick */
 static float         ref_press      = 1013.25f; /* 地面氣壓，啟動時初始化 */
+/* 時鐘健康旗標：0=HSE 正常、1=開機 HSE 起振失敗已降級 HSI、2=飛行中 CSS 觸發降級。
+ * 實案：黑丸版 HSE 晶振故障 → 舊碼死在 Error_Handler(燈都沒設)=全暗磚死無從診斷 */
+volatile uint8_t     clk_hsi_fallback = 0;
 static float         rel_alt        = 0.0f;     /* 相對高度（m） */
 
 /* =========================
@@ -469,11 +472,24 @@ int main(void)
   /* ---- GNSS 初始化（USART2）---- */
   GNSS_Init(&huart2);
 
-  /* ---- 開機狀態整合報告 ---- */
-  { char b[96];
+  /* ---- 開機狀態整合報告(含時鐘來源 + 重啟原因,異常鑑識用)----
+   * CLK: HSE=正常 / HSI-FB=HSE 故障已降級(板子晶振要查!)
+   * RST: 上次重啟原因。BROWNOUT/POWER-ON 突然出現=電源瞬斷(撞擊/接觸不良),
+   *      IWDG=看門狗(若未啟用卻出現=異常),SOFT=軟體重啟,NRST-PIN=按鍵。*/
+  { char b[160];
+    const char *rst =
+      __HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST) ? "IWDG" :
+      __HAL_RCC_GET_FLAG(RCC_FLAG_WWDGRST) ? "WWDG" :
+      __HAL_RCC_GET_FLAG(RCC_FLAG_LPWRRST) ? "LPWR" :
+      __HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST)  ? "SOFT" :
+      __HAL_RCC_GET_FLAG(RCC_FLAG_PORRST)  ? "POWER-ON" :
+      __HAL_RCC_GET_FLAG(RCC_FLAG_BORRST)  ? "BROWNOUT" :
+      __HAL_RCC_GET_FLAG(RCC_FLAG_PINRST)  ? "NRST-PIN" : "?";
+    __HAL_RCC_CLEAR_RESET_FLAGS();
     snprintf(b, sizeof(b),
-      "MOD: BMP=%d IMU=%d LORA=%d  REF_PRESS=%.2f hPa\r\n",
-      mod.bmp585, mod.imu, mod.lora, ref_press);
+      "MOD: BMP=%d IMU=%d LORA=%d  REF_PRESS=%.2f hPa  CLK=%s  RST=%s\r\n",
+      mod.bmp585, mod.imu, mod.lora, ref_press,
+      clk_hsi_fallback ? "HSI-FB(HSE FAIL!)" : "HSE", rst);
     cdc_write(b);
     if (mod.lora) LoRa_SendStr(b); }
 
@@ -485,9 +501,9 @@ int main(void)
       int16_t rt,rgx,rgy,rgz,rax,ray,raz;
       if (lsm6_read_raw_LSM6DSOTR(&rt,&rgx,&rgy,&rgz,&rax,&ray,&raz)==0) {
         float a_x=rax/IMU_ACC_SCALE, a_y=ray/IMU_ACC_SCALE, a_z=raz/IMU_ACC_SCALE;
-        float g_x=rgx/16.384f*0.017453293f;
-        float g_y=rgy/16.384f*0.017453293f;
-        float g_z=rgz/16.384f*0.017453293f;
+        float g_x=rgx/14.286f*0.017453293f;
+        float g_y=rgy/14.286f*0.017453293f;
+        float g_z=rgz/14.286f*0.017453293f;
         mahony_update(a_x,a_y,a_z,g_x,g_y,g_z,0.01f);
       }
     }
@@ -498,9 +514,9 @@ int main(void)
       int16_t rt,rgx,rgy,rgz,rax,ray,raz;
       if (lsm6_read_raw_LSM6DSOTR(&rt,&rgx,&rgy,&rgz,&rax,&ray,&raz)==0) {
         float a_x=rax/IMU_ACC_SCALE, a_y=ray/IMU_ACC_SCALE, a_z=raz/IMU_ACC_SCALE;
-        float g_x=rgx/16.384f*0.017453293f;
-        float g_y=rgy/16.384f*0.017453293f;
-        float g_z=rgz/16.384f*0.017453293f;
+        float g_x=rgx/14.286f*0.017453293f;
+        float g_y=rgy/14.286f*0.017453293f;
+        float g_z=rgz/14.286f*0.017453293f;
         mahony_update(a_x,a_y,a_z,g_x,g_y,g_z,0.01f);
         bias_sum2 += world_az(a_x,a_y,a_z);
         bias_cnt2++;
@@ -518,7 +534,7 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint32_t t_imu = 0, t_bmp = 0, t_out = 0, t_lora = 0;
+  uint32_t t_imu = 0, t_bmp = 0, t_out = 0, t_lora = 0, t_csv = 0;
   uint8_t  sd_init_done  = 0;
   uint8_t  sd_init_tries = 0;   /* SD init 重試計數（第一次上電偶發 cmd0 亂碼，隔 3s 再試會好）*/
   uint8_t  lora_tx_pending = 0;   /* 非阻塞 TX：上一封包是否仍在傳送中 */
@@ -678,9 +694,12 @@ int main(void)
           ay = (float)raw_ay / IMU_ACC_SCALE;
           az = (float)raw_az / IMU_ACC_SCALE;
           const float deg2rad = 0.017453293f;
-          gx = (float)raw_gx / 16.384f * deg2rad;
-          gy = (float)raw_gy / 16.384f * deg2rad;
-          gz = (float)raw_gz / 16.384f * deg2rad;
+          /* 陀螺 ±2000dps 靈敏度 = 70 mdps/LSB（LSM6DS3 DS Table 3）
+           * → 1/0.070 = 14.286 LSB/dps。舊值 16.384（=32768/2000）
+           *   讓角速度偏低 12.8% → 翻滾時姿態滯後、world_az 投影誤差。 */
+          gx = (float)raw_gx / 14.286f * deg2rad;
+          gy = (float)raw_gy / 14.286f * deg2rad;
+          gz = (float)raw_gz / 14.286f * deg2rad;
           tc = (float)raw_t / 256.f + 25.f;
           total_g = sqrtf(ax*ax + ay*ay + az*az);
           mahony_update(ax,ay,az,gx,gy,gz,dt);
@@ -960,7 +979,106 @@ int main(void)
     }
     /* ═══════════════════════════════════════════════════════════════ */
 
-    /* ─── UART/CDC 輸出：一般每 500ms；LANDED 後降頻到每 5s（省電/減 SD 損耗）─── */
+    /* ─── SD CSV 記錄：狀態感知取樣率（獨立於 USB/LoRa 節拍）──────────────
+     * IDLE 2Hz（桌面測試檔案小）→ 飛行中 50Hz（20ms，對齊氣壓/KF2 更新率）
+     * → LANDED 每 5s。
+     * 負載實算：每列 ~150-180B（25 欄含兩個 %.5f）→ 50Hz ≈ 7-9KB/s，
+     * 656kHz 實效 ~55-65KB/s → 餘裕 ~6-9 倍；8MB 預分配 ≈ 15-19 分鐘飛行。
+     * ⚠ 已知取捨（code-review C8, PLAUSIBLE）：50Hz 使 SD sector 落盤/
+     *   GC 停頓（10~250ms）落在開傘決策迴圈的機率比 2Hz 高 ~25 倍，
+     *   最壞讓開傘晚一個停頓長度（~2.5m @10m/s）。要保守可把 20UL 調回
+     *   40~50UL（25~20Hz）換一半曝險。 */
+    mod.sdcard = logger_is_ready();   /* 以 logger 即時狀態為準：CLEAR 救回
+                                       * SD 後不再卡死為 0（code-review C2）*/
+    uint32_t csv_interval;
+    switch (flight_state) {
+      case FLIGHT_LAUNCHED:
+      case FLIGHT_DEPLOYING:
+      case FLIGHT_DEPLOYED:  csv_interval = 20UL;              break;  /* 50Hz */
+      case FLIGHT_LANDED:    csv_interval = LAND_LOG_INTERVAL; break;  /* 5s   */
+      default:               csv_interval = 500UL;             break;  /* 2Hz  */
+    }
+    if (now - t_csv >= csv_interval && logger_is_ready()) {
+      t_csv = now;
+      /* 每個 log 檔「世代」寫一次 CSV header：CLEAR 滾新檔後
+       * logger_file_gen 遞增 → 自動補寫新檔標頭；寫失敗不鎖定、
+       * 下個 tick 重試（code-review C1/C5）。 */
+      static uint8_t csv_hdr_gen = 0;
+      if (csv_hdr_gen != logger_file_gen()) {
+        const char *hdr =
+          "time_ms,state,ax,ay,az,gx,gy,gz,press,rel_alt,kf_h,kf_v,"
+          "total_g,tc,fix,lat,lon,sats,bmp,imu,lora,sd,condA,condB,peak\r\n";
+        UINT bwh = 0;
+        if (f_write(&file, hdr, (UINT)strlen(hdr), &bwh) == FR_OK
+            && bwh == (UINT)strlen(hdr)) {
+          csv_hdr_gen = logger_file_gen();
+        }
+      }
+      /* 組一筆 CSV 資料行
+       * state 欄：0=IDLE 1=LAUNCHED 2=DEPLOYING 3=DEPLOYED 4=LANDED
+       * condA/condB 為原始量測值（故障容錯後的 eff 值可由 MOD 欄推得）*/
+      GNSS_Data gd_csv = GNSS_GetData();
+      char csv[256];
+      int cn = snprintf(csv, sizeof(csv),
+        "%lu,%d,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.2f,%.1f,%.1f,%.2f,"
+        "%.1f,%.1f,%d,%.5f,%.5f,%u,%d,%d,%d,%d,%d,%d,%.1f\r\n",
+        (unsigned long)now, (int)flight_state,
+        ax, ay, az,
+        gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
+        press, rel_alt, kf2_h, kf2_v,
+        total_g, tc,
+        (int)gd_csv.valid, gd_csv.latitude, gd_csv.longitude, (unsigned)gd_csv.num_sats,
+        mod.bmp585, mod.imu, mod.lora, mod.sdcard,
+        cond_A, cond_B, peak_rel_alt);
+
+      if (cn > 0 && cn < (int)sizeof(csv)) {
+        UINT bw_sd = 0;
+        FRESULT fw = f_write(&file, csv, (UINT)cn, &bw_sd);
+        if (fw == FR_OK && bw_sd == (UINT)cn) {
+          sd_write_cnt++;
+          /* ── sync 策略：只有地面/落地做顯式 sync ──
+           * 飛行中(LAUNCHED/DEPLOYING/DEPLOYED)零 sync：8MB 預分配讓目錄/FAT
+           * 在 init 就定案（fsize 固定），資料窗每 512B 自然落盤 →
+           * 斷電最多丟 ~512B（50Hz 下 ≈0.1s 資料）；顯式 f_sync 反而每次
+           * 多寫目錄 sector（15~40ms 阻塞），高頻下傷開傘狀態機。
+           * ★ 零 sync 的前提＝「預分配成功且寫入仍在區內」。前提破功
+           *   （卡空間不足 prealloc 失敗；或落地未偵測——掛樹/高地形——
+           *   寫爆 8MB）時退回週期 sync，否則邊配的 cluster 永不落 FAT，
+           *   斷電後 8MB 之外全部變 lost cluster（code-review S1/C6）。 */
+          switch (flight_state) {
+            case FLIGHT_LAUNCHED:
+            case FLIGHT_DEPLOYING:
+            case FLIGHT_DEPLOYED:
+              if (!logger_prealloc_ok()
+                  || f_tell(&file) >= LOG_PREALLOC_BYTES) {
+                if ((sd_write_cnt % 50U) == 0U) f_sync(&file);  /* ~1s */
+              }
+              break;                     /* 前提成立：飛行中不 sync */
+            default:
+              f_sync(&file);             /* IDLE / LANDED：每筆落盤 */
+              break;
+          }
+        } else {
+          static uint8_t sd_err_cnt = 0;
+          if (sd_err_cnt < 5) {
+            char e[64];
+            snprintf(e,sizeof(e),"SD_ERR fw=%d bw=%u cn=%d\r\n",(int)fw,(unsigned)bw_sd,cn);
+            cdc_write(e); sd_err_cnt++;
+          }
+          /* ── 復原（code-review C4）：FatFS 寫入失敗會鎖定 fp->err
+           * （僅 f_open 能清），不重開則之後每筆立即失敗＝其餘飛行
+           * 全部靜默丟失。節流 2s：重開＋seek 回原寫入位置。      */
+          static uint32_t csv_reopen_t = 0;
+          if (now - csv_reopen_t >= 2000UL) {
+            csv_reopen_t = now;
+            if (logger_reopen() == 0) cdc_write("SD: REOPEN OK\r\n");
+          }
+        }
+      }
+    }
+
+    /* ─── UART/CDC 輸出：一般每 500ms；LANDED 後降頻到每 5s ───
+     * （僅遙測輸出；SD 寫入節拍由上方 t_csv 區塊獨立控制）      */
     uint32_t out_interval = (flight_state == FLIGHT_LANDED) ? LAND_LOG_INTERVAL : 500UL;
     if (now - t_out >= out_interval) {
       t_out = now;
@@ -1044,67 +1162,9 @@ int main(void)
           (unsigned long)lora_seq,(unsigned long)lora_ok,
           (unsigned long)(lora_ok+lora_fail));
 
+      /* USB CDC：人類可讀 key=value 格式（b）。
+       * CSV 寫入已移到上方獨立節拍（狀態感知取樣率），與此 500ms 輸出脫鉤 */
       if (n > 0 && n < (int)sizeof(b)) {
-        /* ── SD 寫入：CSV 格式（逗號分隔欄位，拔卡可直接開 Excel）── */
-        if (mod.sdcard && logger_is_ready()) {
-          /* 首次寫入先輸出 CSV header（落在檔案 byte 0）*/
-          static uint8_t csv_hdr_done = 0;
-          if (!csv_hdr_done) {
-            const char *hdr =
-              "time_ms,state,ax,ay,az,gx,gy,gz,press,rel_alt,kf_h,kf_v,"
-              "total_g,tc,fix,lat,lon,sats,bmp,imu,lora,sd,condA,condB,peak\r\n";
-            UINT bwh = 0;
-            f_write(&file, hdr, (UINT)strlen(hdr), &bwh);
-            csv_hdr_done = 1;
-          }
-          /* 組一筆 CSV 資料行
-           * state 欄：0=IDLE 1=LAUNCHED 2=DEPLOYING 3=DEPLOYED 4=LANDED
-           * condA/condB 為原始量測值（故障容錯後的 eff 值可由 MOD 欄推得）*/
-          char csv[256];
-          int cn = snprintf(csv, sizeof(csv),
-            "%lu,%d,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.2f,%.1f,%.1f,%.2f,"
-            "%.1f,%.1f,%d,%.5f,%.5f,%u,%d,%d,%d,%d,%d,%d,%.1f\r\n",
-            (unsigned long)now, (int)flight_state,
-            ax, ay, az,
-            gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
-            press, rel_alt, kf2_h, kf2_v,
-            total_g, tc,
-            (int)gd.valid, gd.latitude, gd.longitude, (unsigned)gd.num_sats,
-            mod.bmp585, mod.imu, mod.lora, mod.sdcard,
-            cond_A, cond_B, peak_rel_alt);
-
-          if (cn > 0 && cn < (int)sizeof(csv)) {
-            UINT bw_sd = 0;
-            FRESULT fw = f_write(&file, csv, (UINT)cn, &bw_sd);
-            if (fw == FR_OK && bw_sd == (UINT)cn) {
-              sd_write_cnt++;
-              /* ── 飛行狀態感知 sync（防止 SD GC 阻塞開傘狀態機）──
-               * DEPLOYING：不 sync（零阻塞）；LAUNCHED：每 10 次（~5s）；
-               * LANDED：每 2 次（~10s）；IDLE/DEPLOYED：每次 */
-              switch (flight_state) {
-                case FLIGHT_DEPLOYING:
-                  break;
-                case FLIGHT_LAUNCHED:
-                  if (sd_write_cnt % 10 == 0) f_sync(&file);
-                  break;
-                case FLIGHT_LANDED:
-                  if (sd_write_cnt % 2 == 0) f_sync(&file);
-                  break;
-                default:
-                  f_sync(&file);
-                  break;
-              }
-            } else {
-              static uint8_t sd_err_cnt = 0;
-              if (sd_err_cnt < 5) {
-                char e[64];
-                snprintf(e,sizeof(e),"SD_ERR fw=%d bw=%u cn=%d\r\n",(int)fw,(unsigned)bw_sd,cn);
-                cdc_write(e); sd_err_cnt++;
-              }
-            }
-          }
-        }
-        /* USB CDC：維持人類可讀 key=value 格式（b）*/
         if (!cmd_is_typing()) { cdc_write(b); }
       }
     }
@@ -1129,6 +1189,11 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
+  /* ── 主時鐘 HSE 25MHz(黑丸版晶振)；起振失敗自動降級 HSI ────────────────
+   * 兩路皆達 SYSCLK=84MHz / USB 48MHz,差別只在精度(HSI ±1%)。
+   * 實案(2026-07-09):一塊黑丸版 HSE 不起振 → 舊碼在 GPIO init 前就進
+   * Error_Handler = 全暗+無 USB 磚死(DFU 卻能進,因 bootloader 走 HSI)。
+   * 現在:降級續跑並設 clk_hsi_fallback,開機報告印 CLK=HSI-FB 可診斷。*/
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -1139,7 +1204,21 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
-    Error_Handler();
+    clk_hsi_fallback = 1;                    /* HSE 死 → HSI 16MHz 降級 */
+    RCC_OscInitStruct = (RCC_OscInitTypeDef){0};
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+    RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+    RCC_OscInitStruct.PLL.PLLM = 8;          /* 16/8=2MHz = ST 建議 VCO 輸入 */
+    RCC_OscInitStruct.PLL.PLLN = 168;        /* ×168=336 → /4=84MHz、/7=48MHz */
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
+    RCC_OscInitStruct.PLL.PLLQ = 7;
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+    {
+      Error_Handler();                       /* HSI 也掛 = 晶片級故障,無解 */
+    }
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
@@ -1155,10 +1234,42 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+
+  if (!clk_hsi_fallback) {
+    /* CSS 時鐘安全系統：飛行中 HSE 失效(震動可殺機械晶振)→ 硬體自動切 HSI
+     * 並觸發 NMI → HAL_RCC_CSSCallback 重配 PLL,飛控/開傘狀態機不死。 */
+    HAL_RCC_EnableCSS();
+  }
 }
 
 /* USER CODE BEGIN 4 */
-
+/* ── CSS 回呼：飛行中 HSE 掛掉時由 NMI 呼叫 ─────────────────────────────
+ * 進來時硬體已自動把 SYSCLK 切到 HSI 16MHz(裸速)。這裡把 PLL 重配回
+ * 84MHz:APB 頻率復原 → UART/SPI 波特率全部不變,遙測與開傘照常。
+ * USB 可能掉(HSI 精度不足),飛行中無所謂。就算重配失敗,也維持
+ * HSI 16MHz 慢速活著——狀態機續跑,絕不磚死。 */
+void HAL_RCC_CSSCallback(void)
+{
+  clk_hsi_fallback = 2;
+  RCC_OscInitTypeDef osc = {0};
+  RCC_ClkInitTypeDef clk = {0};
+  osc.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  osc.HSIState = RCC_HSI_ON;
+  osc.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  osc.PLL.PLLState  = RCC_PLL_ON;
+  osc.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  osc.PLL.PLLM = 8;  osc.PLL.PLLN = 168;
+  osc.PLL.PLLP = RCC_PLLP_DIV4;  osc.PLL.PLLQ = 7;
+  if (HAL_RCC_OscConfig(&osc) == HAL_OK) {
+    clk.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                  |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+    clk.SYSCLKSource  = RCC_SYSCLKSOURCE_PLLCLK;
+    clk.AHBCLKDivider = RCC_SYSCLK_DIV1;
+    clk.APB1CLKDivider = RCC_HCLK_DIV2;
+    clk.APB2CLKDivider = RCC_HCLK_DIV1;
+    HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_2);
+  }
+}
 /* USER CODE END 4 */
 
 /**
@@ -1168,8 +1279,19 @@ void SystemClock_Config(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* 不呼叫 __disable_irq() — 保持 USB 中斷存活，COM4 才不會消失
-   * 改用 LED 快閃示警（PA2 = LED，Low 點亮，High 熄滅）          */
+  /* 就地初始化 LED GPIO(不依賴 MX_GPIO_Init 是否已跑過)——
+   * 之前 HSE 故障死在時鐘 init(GPIO 未設)= 全暗無從診斷;現在任何
+   * 階段掛掉都保證看得到 5Hz 快閃。不呼叫 __disable_irq():USB 若已
+   * 起來則保持存活,COM 不消失。 */
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  {
+    GPIO_InitTypeDef gled = {0};
+    gled.Pin   = LED_B10_Pin;
+    gled.Mode  = GPIO_MODE_OUTPUT_PP;
+    gled.Pull  = GPIO_NOPULL;
+    gled.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(LED_B10_GPIO_Port, &gled);
+  }
   while (1)
   {
     HAL_GPIO_TogglePin(LED_B10_GPIO_Port, LED_B10_Pin);   /* 狀態燈 */

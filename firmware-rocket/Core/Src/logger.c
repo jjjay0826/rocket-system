@@ -27,6 +27,16 @@ static volatile uint8_t sd_ok = 0;
 static uint8_t fatfs_linked = 0;
 /* 當前 log 檔名：每次上電遞增（log1.csv, log2.csv, ...），不覆寫舊飛行資料 */
 static char cur_logname[16] = "log1.csv";
+/* 8MB 預分配是否成功：飛行「零 sync」政策的前提。失敗（卡空間不足等）
+ * 時 main.c 的 sync 政策必須退回週期 sync（code-review C6）。 */
+static uint8_t prealloc_ok = 0;
+/* 檔案世代：每次成功開新 logN.csv 遞增。main.c 據此判斷「新檔要重寫
+ * CSV header」——CLEAR 滾新檔後不再漏標頭（code-review C1）。 */
+static uint8_t file_gen = 0;
+/* READ 期間保存的寫入位置：讀完重開後 seek 回原位。
+ * 不能用 FA_OPEN_APPEND——預分配檔 fsize=8MB+1，APPEND 會把寫入位置
+ * 跳到檔尾，之後全部寫在預分配區外＝零 sync 前提崩壞（code-review C3）*/
+static FSIZE_t saved_wpos = 0;
 
 void logger_init(void) {
     sd_ok = 0;
@@ -65,18 +75,43 @@ void logger_init(void) {
      *   4 小時全速  = 4×3600×2×280 = 8,064,000 B ≈ 7.7 MB  → 8MB 足夠
      *   落地後 5s 間隔，後半段消耗大幅降低
      * ──────────────────────────────────────────────────────────────*/
-#define LOG_PREALLOC_BYTES  (8UL * 1024UL * 1024UL)   /* 8 MB ≈ 4 小時餘裕 */
+    /* LOG_PREALLOC_BYTES 已移至 logger.h（main.c 的 sync 政策需要它）*/
     {
+        prealloc_ok = 0;
         if (f_lseek(&file, LOG_PREALLOC_BYTES) == FR_OK) {
-            UINT bw;
+            UINT bw = 0;
             uint8_t zero = 0;
-            f_write(&file, &zero, 1, &bw);  /* 強制 cluster chain 全部建立 */
-            f_sync(&file);                  /* 一次性 GC，地面可接受 */
-            f_lseek(&file, 0);              /* 回到檔案開頭，從 byte 0 開始寫 */
+            if (f_write(&file, &zero, 1, &bw) == FR_OK && bw == 1
+                && f_sync(&file) == FR_OK
+                && f_lseek(&file, 0) == FR_OK) {
+                prealloc_ok = 1;
+            }
+        }
+        if (!prealloc_ok) {
+            /* 卡空間不足等：不擋記錄，但 main.c 會退回週期 sync 政策，
+             * 且明確告警——舊版靜默吞掉，零 sync 飛行斷電＝整趟丟失 */
+            f_lseek(&file, 0);
+            uart1_write("LOG: PREALLOC FAIL (low space?) - fallback to periodic sync\r\n");
         }
     }
 
+    file_gen++;              /* 新檔世代：main.c 據此重寫 CSV header */
     sd_ok = 1;
+}
+
+uint8_t logger_prealloc_ok(void) { return prealloc_ok; }
+uint8_t logger_file_gen(void)    { return file_gen; }
+
+/* 寫入失敗復原（code-review C4）：FatFS 在 f_write 失敗時鎖定 fp->err
+ * （ff.c ABORT，僅 f_open 能清），不重開則之後所有寫入立即失敗＝
+ * 整趟飛行資料靜默丟失。關檔→重開→seek 回原寫入位置。 */
+int logger_reopen(void) {
+    FSIZE_t pos = f_tell(&file);
+    f_close(&file);
+    fres = f_open(&file, cur_logname, FA_WRITE);   /* 勿用 APPEND（見 saved_wpos 註解）*/
+    if (fres == FR_OK) fres = f_lseek(&file, pos);
+    sd_ok = (fres == FR_OK) ? 1 : 0;
+    return sd_ok ? 0 : -1;
 }
 
 uint8_t logger_is_ready(void) { return sd_ok; }
@@ -120,6 +155,8 @@ int logger_trunc(void) {
 
 /* ===== 讀取函式 ===== */
 int logger_open_for_read(void) {
+    /* 先記下寫入位置（此刻 file 仍是寫模式），讀完重開後 seek 回來 */
+    saved_wpos = f_tell(&file);
     // 關閉先前的文件（如果是寫模式）
     f_close(&file);
 
@@ -223,9 +260,13 @@ void logger_read_all_uart(void) {
     uart1_write("===== End of Log =====\r\n");
     f_close(&file);
 
-    /* 讀完以 append 重開「同一個」log 檔：繼續寫、不清空、不建新檔。
-     * （原本呼叫 logger_init() 會觸發建新檔／清空剛讀的資料，是先前的 bug）*/
-    fres = f_open(&file, cur_logname, FA_WRITE | FA_OPEN_APPEND);
+    /* 讀完重開「同一個」log 檔並 seek 回原寫入位置：繼續寫、不清空、
+     * 不建新檔。⚠ 勿用 FA_OPEN_APPEND：預分配檔 fsize=8MB+1，APPEND
+     * 會把 fptr 跳到檔尾 → 之後全寫在預分配區外、零 sync 政策下斷電
+     * 整趟孤兒化，且 TRUNC 也削不掉 8MB 垃圾間隙（code-review C3）。 */
+    fres = f_open(&file, cur_logname, FA_WRITE);
+    if (fres == FR_OK) fres = f_lseek(&file, saved_wpos);
+    sd_ok = (fres == FR_OK) ? 1 : 0;   /* 重開失敗要讓寫入路徑知道 */
     logger_reading = 0;
 }
 

@@ -124,7 +124,15 @@ uint32_t GNSS_GetByteCnt(void) { return gnss_byte_cnt; }
 uint32_t GNSS_GetLineCnt(void) { return gnss_line_cnt; }
 
 GNSS_Data GNSS_GetData(void) {
-    return current_data;
+    /* current_data 由 USART2 ISR 逐欄更新；無保護的 struct 複製可能
+     * 拿到「新緯度＋舊經度」的撕裂配對且 valid=1（code-review C7）。
+     * 短暫關 USART2 IRQ（複製 ~24B ≈ 1µs << 9600baud 位元組時間 1ms，
+     * pending IRQ 會保留，不丟資料）。 */
+    GNSS_Data d;
+    NVIC_DisableIRQ(USART2_IRQn);
+    d = current_data;
+    NVIC_EnableIRQ(USART2_IRQn);
+    return d;
 }
 
 
