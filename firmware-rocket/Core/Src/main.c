@@ -137,6 +137,9 @@ static float         ref_press      = 1013.25f; /* 地面氣壓，啟動時初�
 /* 時鐘健康旗標：0=HSE 正常、1=開機 HSE 起振失敗已降級 HSI、2=飛行中 CSS 觸發降級。
  * 實案：黑丸版 HSE 晶振故障 → 舊碼死在 Error_Handler(燈都沒設)=全暗磚死無從診斷 */
 volatile uint8_t     clk_hsi_fallback = 0;
+/* 匯流排健檢旗標：1=開機時 SPI2 三線有線被鉗低（晶片電源軌塌陷/模組未裝），
+ * 三線已鎖 analog Hi-Z、感測器初始化跳過。實案：B 板 VDDIO 鉗位 46mA 事故 */
+static uint8_t       bus_clamped    = 0;
 static float         rel_alt        = 0.0f;     /* 相對高度（m） */
 
 /* =========================
@@ -443,11 +446,40 @@ int main(void)
   HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_RESET);  /* 7V 發火① PA0 */
   HAL_GPIO_WritePin(FIRE_7V_2_GPIO_Port, FIRE_7V_2_Pin, GPIO_PIN_RESET);  /* 7V 發火② PA1 (DEPLOY) */
 
+  /* ---- SPI2 感測匯流排開機健檢(B 板 VDDIO 鉗位事故的制度化防護)----
+   * 背景:匯流排上若有晶片內部電源軌塌陷,訊號腳會被其保護二極體鉗在
+   * ~0.5V;SPI 推挽閒置(SCK 恆高)頂著鉗位 = 持續 ~46mA,遠超 GPIO 25mA
+   * 額定。健康匯流排三線由 BMP 板上 10k 上拉,輸入採樣皆應為高。
+   * 任一線連續 3 次採樣為低 → 三線鎖 analog Hi-Z、跳過感測器初始化、
+   * 開機報告印 BUS=CLAMPED(也涵蓋 BMP 模組未裝=無上拉的情況)。 */
+  {
+    GPIO_InitTypeDef gi = {0};
+    gi.Pin  = GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+    gi.Mode = GPIO_MODE_INPUT;
+    gi.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOB, &gi);
+    HAL_Delay(2);                     /* 讓模組上拉把線位拉穩 */
+    uint8_t low_rounds = 0;
+    for (int s = 0; s < 3; s++) {
+      if (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13) ||
+          !HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_14) ||
+          !HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_15)) low_rounds++;
+      HAL_Delay(1);
+    }
+    if (low_rounds >= 3) {
+      bus_clamped = 1;
+      gi.Mode = GPIO_MODE_ANALOG;     /* 鎖 Hi-Z:不推挽、不灌流 */
+      HAL_GPIO_Init(GPIOB, &gi);
+    } else {
+      MX_SPI2_Init();                 /* 健康 → 還原 AF 推挽組態 */
+    }
+  }
+
   /* 等 USB CDC 完整枚舉 */
   HAL_Delay(1000);
 
-  /* ---- IMU 初始化（重試 3 次）---- */
-  for (int _i = 0; _i < 3; _i++) {
+  /* ---- IMU 初始化（重試 3 次;匯流排鉗位時跳過,避免無意義觸發）---- */
+  for (int _i = 0; !bus_clamped && _i < 3; _i++) {
     if (lsm6_init() == 0) { mod.imu = 1; imu_ok = 1; break; }
     HAL_Delay(200);
   }
@@ -458,8 +490,8 @@ int main(void)
     HAL_Delay(200);
   }
 
-  /* ---- BMP585 初始化（重試 3 次）---- */
-  for (int _i = 0; _i < 3; _i++) {
+  /* ---- BMP585 初始化（重試 3 次;匯流排鉗位時跳過）---- */
+  for (int _i = 0; !bus_clamped && _i < 3; _i++) {
     uint8_t bid = BMP585_Init(&hspi2);
     if (bid != 0) { mod.bmp585 = 1; break; }
     HAL_Delay(200);
@@ -487,9 +519,10 @@ int main(void)
       __HAL_RCC_GET_FLAG(RCC_FLAG_PINRST)  ? "NRST-PIN" : "?";
     __HAL_RCC_CLEAR_RESET_FLAGS();
     snprintf(b, sizeof(b),
-      "MOD: BMP=%d IMU=%d LORA=%d  REF_PRESS=%.2f hPa  CLK=%s  RST=%s\r\n",
+      "MOD: BMP=%d IMU=%d LORA=%d  REF_PRESS=%.2f hPa  CLK=%s  RST=%s%s\r\n",
       mod.bmp585, mod.imu, mod.lora, ref_press,
-      clk_hsi_fallback ? "HSI-FB(HSE FAIL!)" : "HSE", rst);
+      clk_hsi_fallback ? "HSI-FB(HSE FAIL!)" : "HSE", rst,
+      bus_clamped ? "  BUS=CLAMPED!(SPI2 Hi-Z)" : "");
     cdc_write(b);
     if (mod.lora) LoRa_SendStr(b); }
 

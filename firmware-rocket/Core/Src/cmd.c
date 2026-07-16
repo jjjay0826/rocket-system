@@ -138,6 +138,9 @@ void cmd_show_help(void)
   cmd_out("TRUNC  - Trim log to real size (run before pulling card on bench)\r\n");
   cmd_out("CLEAR  - Close current log, start a new one\r\n");
   cmd_out("STATUS - System status summary\r\n");
+  cmd_out("PINTEST- Sensor-bus GPIO probe (B13/B15 slow toggle, ~16s, then reboot)\r\n");
+  cmd_out("PINHOLD- Static pin hold 3x60s phases for DMM current probing, then reboot\r\n");
+  cmd_out("BUSFLOAT- Release SPI2 pins to Hi-Z until reboot (probe-safe mode)\r\n");
   cmd_out("HELP   - Show this message\r\n");
   cmd_out("==============================================\r\n");
   cmd_out("Note: SD card saves data automatically.\r\n");
@@ -200,6 +203,122 @@ static void process_command_exec(const char *cmd)
              "GNSS: ATGM336H (UART2, PA3)\r\n\r\n> ",
              logger_is_ready() ? "OK (log.txt open)" : "NOT READY");
     cmd_out(sb);
+  }
+  else if (strncmp(cmd, "PINTEST", 7) == 0)
+  {
+    /* 感測器匯流排腳位診斷（雙感測器同時無回應的硬體分案工具）：
+     * 把 SEN_SCK(PB13)/SEN_MOSI(PB15) 暫時改成 1Hz 方波 GPIO，用三用電表
+     * 就能看「MCU 推不推得動這條線」——分辨 MCU 輸出級損壞 vs 線上被
+     * 外部元件鉗位（例如感測器輸入端 ESD 損傷漏電）。
+     * 兩顆 CS（PB12/PA8）全程壓 HIGH：感測器都不被選中 → SEN_MISO(PB14)
+     * 保證無人驅動；本測試也刻意不驅動 PB14，避免匯流排打架。
+     * 結束以 NVIC_SystemReset() 復原全部周邊組態（SPI2 設定不用手動還原）。*/
+    cmd_out("\r\nPINTEST: B13/B15 1Hz square wave x8 cycles (~16s)\r\n");
+    cmd_out("Meter DC-V: B13 & B15 = 3.3V on HIGH, 0V on LOW\r\n");
+    cmd_out("B12 & A8 (CS) held HIGH; B14 not driven\r\n");
+
+    /* CS 先寫高再確保輸出模式（原本就是輸出高，重寫無害且自我防衛） */
+    HAL_GPIO_WritePin(BARO_CS_GPIO_Port, BARO_CS_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(IMU_CS_N_GPIO_Port, IMU_CS_N_Pin, GPIO_PIN_SET);
+
+    GPIO_InitTypeDef gi = {0};
+    gi.Mode  = GPIO_MODE_OUTPUT_PP;
+    gi.Pull  = GPIO_NOPULL;
+    gi.Speed = GPIO_SPEED_FREQ_LOW;
+    gi.Pin   = GPIO_PIN_13 | GPIO_PIN_15;   /* SEN_SCK / SEN_MOSI 由 AF 轉手動 */
+    HAL_GPIO_Init(GPIOB, &gi);
+
+    for (int i = 1; i <= 8; i++) {
+      char pb[48];
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13 | GPIO_PIN_15, GPIO_PIN_SET);
+      snprintf(pb, sizeof(pb), "[%d/8] HIGH (expect 3.3V)\r\n", i);
+      cmd_out(pb);
+      HAL_Delay(1000);
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13 | GPIO_PIN_15, GPIO_PIN_RESET);
+      snprintf(pb, sizeof(pb), "[%d/8] LOW  (expect 0V)\r\n", i);
+      cmd_out(pb);
+      HAL_Delay(1000);
+    }
+    cmd_out("PINTEST done -> reboot to restore SPI2\r\n");
+    HAL_Delay(200);
+    NVIC_SystemReset();
+  }
+  else if (strncmp(cmd, "PINHOLD", 7) == 0)
+  {
+    /* PINTEST 的靜態版（cross-check 修正：1Hz 方波可能被電表平均，
+     * 且鉗位定位需要「跨 R23/R24 量壓降=電流」的穩態窗口）。
+     * Phase1 60s：B13=HIGH、B15=LOW  → 量 R23 兩端對地 + 跨阻 mV
+     * Phase2 60s：B13=LOW、B15=HIGH → 量 R24 兩端對地 + 跨阻 mV
+     * Phase3 60s：B13/B14/B15 全改 analog 高阻抗（MCU 完全放手），CS 維持 HIGH
+     *            → 匯流排自然電位（BMP 板內建 10k 上拉應能拉高健康的線）
+     * 全程兩顆 CS 壓 HIGH；結束軟重開復原 SPI2。 */
+    GPIO_InitTypeDef gi = {0};
+
+    HAL_GPIO_WritePin(BARO_CS_GPIO_Port, BARO_CS_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(IMU_CS_N_GPIO_Port, IMU_CS_N_Pin, GPIO_PIN_SET);
+
+    gi.Mode  = GPIO_MODE_OUTPUT_PP;
+    gi.Pull  = GPIO_NOPULL;
+    gi.Speed = GPIO_SPEED_FREQ_LOW;
+    gi.Pin   = GPIO_PIN_13 | GPIO_PIN_15;
+    HAL_GPIO_Init(GPIOB, &gi);
+
+    cmd_out("\r\nPINHOLD Phase1 (60s): B13=HIGH, B15=LOW\r\n");
+    cmd_out("  Measure: R23 both ends vs GND + across R23 (mV)\r\n");
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_RESET);
+    for (int t = 60; t > 0; t -= 10) {
+      char pb[32];
+      snprintf(pb, sizeof(pb), "  P1 %ds left\r\n", t);
+      cmd_out(pb);
+      HAL_Delay(10000);
+    }
+
+    cmd_out("PINHOLD Phase2 (60s): B13=LOW, B15=HIGH\r\n");
+    cmd_out("  Measure: R24 both ends vs GND + across R24 (mV)\r\n");
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET);
+    for (int t = 60; t > 0; t -= 10) {
+      char pb[32];
+      snprintf(pb, sizeof(pb), "  P2 %ds left\r\n", t);
+      cmd_out(pb);
+      HAL_Delay(10000);
+    }
+
+    cmd_out("PINHOLD Phase3 (60s): B13/B14/B15 = analog Hi-Z (MCU released)\r\n");
+    cmd_out("  Measure: bus SCK/SDI/SDO natural levels (BMP 10k pullups)\r\n");
+    gi.Mode = GPIO_MODE_ANALOG;
+    gi.Pull = GPIO_NOPULL;
+    gi.Pin  = GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+    HAL_GPIO_Init(GPIOB, &gi);
+    for (int t = 60; t > 0; t -= 10) {
+      char pb[32];
+      snprintf(pb, sizeof(pb), "  P3 %ds left\r\n", t);
+      cmd_out(pb);
+      HAL_Delay(10000);
+    }
+
+    cmd_out("PINHOLD done -> reboot\r\n");
+    HAL_Delay(200);
+    NVIC_SystemReset();
+  }
+  else if (strncmp(cmd, "BUSFLOAT", 8) == 0)
+  {
+    /* B 板保護/量測模式：SPI2 三線改 analog Hi-Z、兩 CS 拉高，維持到重開機。
+     * 背景：匯流排存在 ~1V 二極體式鉗位時，正常韌體 SPI2 閒置（SCK 恆高）
+     * 會持續灌 ~46mA（遠超 GPIO 25mA 額定）。量測/剪腳驗證前先下此令：
+     * 匯流排只剩模組自身上拉在餵，可安全探測自然電位。 */
+    HAL_GPIO_WritePin(BARO_CS_GPIO_Port, BARO_CS_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(IMU_CS_N_GPIO_Port, IMU_CS_N_Pin, GPIO_PIN_SET);
+    {
+      GPIO_InitTypeDef gi = {0};
+      gi.Mode = GPIO_MODE_ANALOG;
+      gi.Pull = GPIO_NOPULL;
+      gi.Pin  = GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+      HAL_GPIO_Init(GPIOB, &gi);
+    }
+    cmd_out("\r\nBUSFLOAT: B13/B14/B15 -> analog Hi-Z, CS held HIGH (until reboot)\r\n"
+            "Bus now fed only by module pullups - safe to probe.\r\n\r\n> ");
   }
   else
   {
