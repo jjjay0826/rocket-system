@@ -25,6 +25,7 @@
 #include "usart.h"
 #include "tim.h"
 #include "imu_fast.h"
+#include "lora_e22.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -261,9 +262,21 @@ void OTG_FS_IRQHandler(void)
 
 /* USER CODE BEGIN 1 */
 
+/* UART 回呼依 instance 分派（HAL 弱符號覆寫）：
+ *   USART1 = LoRa E22（投放測試遙測）；USART2 未 arm IT，不會進來。
+ *   ★ 全專案只能有一份 HAL_UART_*CpltCallback 定義，故集中在此。 */
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1) LoRa_OnTxDone();   /* 非阻塞 TX 完成 → 清 busy */
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1) LoRa_OnRxByte();   /* LoRa RX（TX-only 用途下不會觸發）*/
+}
+
 /* TIM2 週期中斷 → 500Hz IMU 取樣（ImuFast 模組）。
- * 投放測試韌體不用 LoRa/GNSS，USART1/2 IRQ 保留為裸 HAL handler
- *（NVIC 有開但沒 arm Receive_IT，不會有回呼）。 */
+ * USART1 現作 LoRa E22 透傳遙測（TX）；USART2 仍未使用。 */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim->Instance == TIM2)

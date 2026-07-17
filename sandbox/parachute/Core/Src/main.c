@@ -5,7 +5,9 @@
   * @brief          : 降落傘投放測試韌體（rocket parachute）— 黑丸版
   *
   * 目標：量得準（終端速度）。500Hz IMU CSV + KF2 高度/速度融合。
-  * 無開傘邏輯、無 LoRa、無 GNSS —— 純特性化記錄工具。
+  * 無開傘邏輯、無 GNSS —— 特性化記錄工具。
+  * LoRa（E22 透傳，USART1）：2Hz 遙測 TX，用火箭↔地面共用協定
+  *   （shared/protocol.h），地面站不改即可同時收本韌體與飛行韌體。
   *
   * 硬體平台（2026-06-30 起）：WeAct STM32F411 黑丸版 + 自製載板
   *   時鐘   ：HSE 25MHz → PLL → 84MHz（黑丸版板載晶振）
@@ -37,6 +39,7 @@
 #include "bmp585.h"
 #include "cmd.h"
 #include "imu_fast.h"
+#include "lora_e22.h"        /* E22 透傳 LoRa：投放測試遙測（TX，共用協定）*/
 #include "sd_diskio_spi.h"   /* SD_disk_initialize：SD 硬重置用 */
 
 /* USB CDC */
@@ -108,8 +111,8 @@ static float         rel_alt        = 0.0f;     /* 相對高度（m） */
    Debug helpers
    ========================= */
 void cdc_write(const char *s);   /* 前向宣告，下方定義 */
-/* 黑丸版載板：USART1 = LoRa 座（本韌體不用），debug 一律走 USB CDC。
- * 保留 uart1_write 名稱，cmd.c/logger.c 等舊呼叫點無需改動。 */
+/* 黑丸版載板：USART1 = LoRa E22（透傳遙測 TX，見上）；debug 一律走 USB CDC。
+ * uart1_write 仍別名到 CDC（保留名稱，cmd.c/logger.c 等舊呼叫點無需改動）。 */
 void uart1_write(const char *s)
 {
   if (!s) return;
@@ -317,6 +320,7 @@ typedef struct {
     uint8_t bmp585  : 1;   /* 氣壓計 */
     uint8_t imu     : 1;   /* IMU */
     uint8_t sdcard  : 1;   /* SD 卡 */
+    uint8_t lora    : 1;   /* LoRa E22（透傳 TX）*/
 } ModStatus_t;
 static ModStatus_t mod      = {0};   /* 預設全部失效 */
 
@@ -419,12 +423,18 @@ int main(void)
   /* ref_press 故意延後到 IMU 校準之後再取樣（見下方），
    * 讓 BMP585 多 ~2 秒暖機，消除冷啟熱漂移導致的 -4m 系統偏移 */
 
-  /* ---- 開機狀態整合報告 ---- */
+  /* ---- LoRa 初始化（E22 透傳模式；投放測試遙測 TX）----
+   * 透傳模式下驅動回 0 只代表 UART/IT 就緒，不保證 E22 有電/有接（無 AUX
+   * 驗證）；mod.lora 僅反映驅動狀態。M0/M1 硬接 GND（載板）。 */
+  if (LoRa_Init() == 0) mod.lora = 1;
+
+  /* ---- 開機狀態整合報告（USB CDC + LoRa 各送一份）---- */
   { char b[96];
     snprintf(b, sizeof(b),
-      "MOD: BMP=%d IMU=%d  REF_PRESS=%.2f hPa\r\n",
-      mod.bmp585, mod.imu, ref_press);
-    cdc_write(b); }
+      "MOD: BMP=%d IMU=%d LORA=%d  REF_PRESS=%.2f hPa\r\n",
+      mod.bmp585, mod.imu, mod.lora, ref_press);
+    cdc_write(b);
+    if (mod.lora) LoRa_SendStr(b); }   /* 開機訊息用阻塞送，主迴圈才走非阻塞 */
 
   /* ---- IMU 校準（僅在 IMU 成功初始化時執行）---- */
   if (mod.imu) {
@@ -1035,6 +1045,30 @@ int main(void)
     if (now - t_out >= 500) {
       t_out = now;
       HAL_GPIO_TogglePin(LED_B10_GPIO_Port, LED_B10_Pin);   /* 狀態燈（載板 PB10）*/
+
+      /* ── LoRa 遙測（共用協定，2Hz；地面站與火箭端同一解析器）──────────
+       * 格式須與 shared/protocol.h 的 RKT_LORA_TX_FMT 及 firmware-ground
+       * 解析端一致（三處人工同步，改欄位要一起改）。
+       * parachute 無 flight_state，用 land_state 映射協定狀態碼：
+       *   LAND_FLIGHT→"LA"(空中/下降) / LAND_IMPACT→"DP"(撞擊確認中) /
+       *   LAND_LANDED→"DD"(已落地)。
+       * 非阻塞 TX：SendAsync 走 UART IT，不阻塞 500Hz 取樣（該取樣在 TIM2 ISR）。
+       * ⚠ 封包 ~60B/500ms=120B/s，遠低於 E22 預設 2.4kbps air（~200B/s 有效）。*/
+      if (mod.lora) {
+        LoRa_PollTx();                       /* 先清上一包（超時保護）*/
+        static uint32_t lora_seq = 0;
+        const char *st_s = (land_state == LAND_LANDED) ? "DD"
+                         : (land_state == LAND_IMPACT) ? "DP" : "LA";
+        lora_seq++;                          /* 序號遞增，接收端偵測掉包 */
+        char lora_pkt[96];
+        int lp = snprintf(lora_pkt, sizeof(lora_pkt),
+          "N=%lu T=%lu P=%.2f RH=%.1f KH=%.1f G=%.2f S=%s M=%d%d%d%d\n",
+          (unsigned long)lora_seq, (unsigned long)now,
+          press, rel_alt, kf2_h, total_g, st_s,
+          mod.bmp585, mod.imu, mod.lora, mod.sdcard);
+        if (lp > 0 && lp < (int)sizeof(lora_pkt))
+          LoRa_SendAsync((uint8_t*)lora_pkt, (uint8_t)lp);
+      }
 
       static char b[256]; int n;
       n = snprintf(b, sizeof(b),
