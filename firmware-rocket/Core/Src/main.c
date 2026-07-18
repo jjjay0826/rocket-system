@@ -373,6 +373,8 @@ static uint8_t  lora_err_cnt = 0;     /* LoRa 連續失敗計數 */
 static uint32_t lora_seq     = 0;     /* 傳送序號（接收端可偵測掉包）*/
 static uint32_t lora_ok      = 0;     /* 成功傳送次數 */
 static uint32_t lora_fail    = 0;     /* 失敗傳送次數 */
+static uint32_t main_loop_cnt = 0;     /* 主迴圈計數器 */
+static uint8_t  is_boosting  = 0;     /* 是否處於推力段 (BOOST) */
 #define MOD_ERR_MAX  5               /* 連續 N 次失敗 → 標記死亡 */
 
 /* ======================================================
@@ -582,6 +584,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    main_loop_cnt++;
 
     /* ═══════════════════════════════════════════════════════════════
      * ★ 最高優先：開傘狀態機（無任何阻塞，每次迴圈必執行）
@@ -737,6 +740,14 @@ int main(void)
           total_g = sqrtf(ax*ax + ay*ay + az*az);
           mahony_update(ax,ay,az,gx,gy,gz,dt);
 
+          /* 引擎燒完偵測：起飛後，當合加速度降回 1.15g 以下，視為進入慣性上升段 (LAUNCH) */
+          if (flight_state == FLIGHT_LAUNCHED && is_boosting) {
+            if (total_g < 1.15f) {
+              is_boosting = 0;
+              cdc_write("*** BURNOUT (Coasting) ***\r\n");
+            }
+          }
+
           /* 發射偵測：total_g > 閾值持續 200ms */
           if (total_g >= LAUNCH_AZ_G) {
             g2_count++;
@@ -744,6 +755,7 @@ int main(void)
               imu_armed      = 1;
               launch_time_ms = now;
               flight_state   = FLIGHT_LAUNCHED;
+              is_boosting    = 1;
               /* KF2 從乾淨起點：地面高度=0、速度=0、協方差復位 */
               kf2_h = 0.0f; kf2_v = 0.0f;
               kf2_p00 = 1.0f; kf2_p01 = 0.0f; kf2_p11 = 1.0f;
@@ -818,6 +830,7 @@ int main(void)
           imu_armed      = 1;
           launch_time_ms = now;
           flight_state   = FLIGHT_LAUNCHED;
+          is_boosting    = 0;
           /* ── 修正 1：KF2 對齊當前氣壓高度 ──────────────────────────
            * 若 kf2_h 留在 0，更新步會以為「從地面追到 30m」，
            * 造成 kf2_v 暴衝，完全失去參考價值。
@@ -979,25 +992,54 @@ int main(void)
         if (!LoRa_IsBusy()) {
           const char *st_s;
           switch (flight_state) {
-            case FLIGHT_IDLE:      st_s = "ID"; break;
-            case FLIGHT_LAUNCHED:  st_s = "LA"; break;
-            case FLIGHT_DEPLOYING: st_s = "DP"; break;
-            default:               st_s = "DD"; break;
+            case FLIGHT_IDLE:      st_s = "IDLE"; break;
+            case FLIGHT_LAUNCHED:  st_s = (mod.imu && is_boosting) ? "BOOST" : "LAUNCH"; break;
+            case FLIGHT_DEPLOYING: st_s = "APOGEE"; break;
+            case FLIGHT_DEPLOYED:  st_s = "DESCENT"; break;
+            case FLIGHT_LANDED:    st_s = "LANDED"; break;
+            default:               st_s = "IDLE"; break;
           }
           lora_seq++;   /* 序號遞增（接收端用來偵測掉包）*/
           /* ── LoRa 遙測封包格式 ───────────────────────────────────────────
-           * ⚠ 此格式是「火箭端 ↔ 地面端」共用協定。單一真實來源見
-           *    shared/protocol.h（對應巨集 RKT_LORA_TX_FMT / RKT_LORA_RX_FMT）。
-           *    目前「未」#include 該檔、格式直接寫死於下方 snprintf，屬人工同步：
-           *    改動下面任一欄位 → 必須同步更新 (1) shared/protocol.h 與
-           *    (2) firmware-ground 的解析端，三處一致，否則地面端解出垃圾。
+           * ⚠ 此格式是「火箭端 ↔ 地面端」共用協定。
+           * 改動下面任一欄位 → 必須同步更新地面解析端與對接協議。
            * ───────────────────────────────────────────────────────────────── */
-          char lora_pkt[96];
-          int lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
-            "N=%lu T=%lu P=%.2f RH=%.1f KH=%.1f G=%.2f S=%s M=%d%d%d%d\n",
-            (unsigned long)lora_seq,
-            (unsigned long)now, press, rel_alt, kf2_h, total_g,
-            st_s, mod.bmp585, mod.imu, mod.lora, mod.sdcard);
+          char lora_pkt[256];
+          int lora_n;
+          int ca_eff = mod.bmp585 ? cond_A : (mod.imu ? 1 : 0);
+          int cb_eff = mod.imu ? cond_B : (mod.bmp585 ? 1 : 0);
+          GNSS_Data gd = GNSS_GetData();
+
+          if (gd.valid) {
+            lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
+              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f TC%.1f RAW0x%06lX ST:%s MOD%d%d%d%d GPS:%s SV:%d,%d BF:0,%lu CA:%d,%d CB:%d,%d PK%.1f SD%lu LR:%lu,%lu,%lu LAT%+0.5f LON%+0.5f\r\n",
+              (unsigned long)now, ax, ay, az,
+              gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
+              press, rel_alt, kf2_h, kf2_v, total_g, tc,
+              (unsigned long)BMP585_GetLastRaw(), st_s,
+              mod.bmp585, mod.imu, mod.lora, mod.sdcard,
+              "FIX_3D", (int)gd.sats_in_view, (int)gd.num_sats,
+              (unsigned long)main_loop_cnt,
+              (int)cond_A, ca_eff,
+              (int)cond_B, cb_eff,
+              peak_rel_alt, (unsigned long)sd_write_cnt,
+              (unsigned long)lora_seq, (unsigned long)lora_ok, (unsigned long)(lora_ok + lora_fail),
+              gd.latitude, gd.longitude);
+          } else {
+            lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
+              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f TC%.1f RAW0x%06lX ST:%s MOD%d%d%d%d GPS:%s SV:%d,%d BF:0,%lu CA:%d,%d CB:%d,%d PK%.1f SD%lu LR:%lu,%lu,%lu\r\n",
+              (unsigned long)now, ax, ay, az,
+              gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
+              press, rel_alt, kf2_h, kf2_v, total_g, tc,
+              (unsigned long)BMP585_GetLastRaw(), st_s,
+              mod.bmp585, mod.imu, mod.lora, mod.sdcard,
+              "NO_FIX", (int)gd.sats_in_view, (int)gd.num_sats,
+              (unsigned long)main_loop_cnt,
+              (int)cond_A, ca_eff,
+              (int)cond_B, cb_eff,
+              peak_rel_alt, (unsigned long)sd_write_cnt,
+              (unsigned long)lora_seq, (unsigned long)lora_ok, (unsigned long)(lora_ok + lora_fail));
+          }
 
           if (lora_n > 0 && lora_n < (int)sizeof(lora_pkt)) {
             if (LoRa_SendAsync((uint8_t*)lora_pkt, (uint8_t)lora_n) == 0) {
