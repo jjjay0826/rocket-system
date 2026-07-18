@@ -473,6 +473,7 @@ int main(void)
       gi.Mode = GPIO_MODE_ANALOG;     /* 鎖 Hi-Z:不推挽、不灌流 */
       HAL_GPIO_Init(GPIOB, &gi);
     } else {
+      HAL_SPI_DeInit(&hspi2);         /* 強制重設 HAL SPI 狀態機，確保下行重新設定 GPIO AF 模式 */
       MX_SPI2_Init();                 /* 健康 → 還原 AF 推挽組態 */
     }
   }
