@@ -637,7 +637,17 @@ int main(void)
       int cond_B_eff = mod.imu    ? cond_B : (mod.bmp585 ? 1 : 0);
 
       int deploy_main = (cond_A_eff && cond_B_eff);
-      int deploy_bkup = (t_fly >= DEPLOY_TB_MS);   /* C: t > 20s */
+      /* C 備援：t>20s。★地面安全閘門（防組裝/搬運誤判 LAUNCH 後，20s 純計時
+       *   在地面點火——原本此路無高度確認）：氣壓計活著時，額外要求「曾爬升過
+       *   DEPLOY_PEAK_MIN_M(20m)」才准觸發。地面高度永不爬 → peak_rel_alt≈0
+       *   → 備援被擋。這與 cond_A 用的是同一道 20m 地面防護閘門，風險姿態一致。
+       *   氣壓計死時（mod.bmp585=0，正是備援設計要保底的感測器故障情境）退回
+       *   純計時，保留「感測器全死也開傘」原意；此路殘留地面風險由「電火頭最後
+       *   接」SOP 兜底（force-launch(60s) 亦走此路，同受 SOP 保護）。
+       * ⚠ 未桌面驗證前勿信賴。需灌假資料驗三情境：①爬升過→20s 觸發 ②沒爬升
+       *   →擋住 ③氣壓計標死→退回純計時仍於 20s 觸發。 */
+      int deploy_bkup = (t_fly >= DEPLOY_TB_MS)
+                        && (mod.bmp585 ? (peak_rel_alt >= DEPLOY_PEAK_MIN_M) : 1);
 
       if (deploy_main || deploy_bkup) {
         deploy_time_ms = now;
