@@ -91,12 +91,12 @@ void Error_Handler(void);
 #define LORA_TX_GPIO_Port GPIOA
 #define LORA_RX_Pin GPIO_PIN_10
 #define LORA_RX_GPIO_Port GPIOA
-#define SIG_OUT_3_Pin GPIO_PIN_5
-#define SIG_OUT_3_GPIO_Port GPIOB
-#define SIG_OUT_2_Pin GPIO_PIN_6
-#define SIG_OUT_2_GPIO_Port GPIOB
-#define SIG_OUT_1_Pin GPIO_PIN_7
-#define SIG_OUT_1_GPIO_Port GPIOB
+#define SIG_3_Pin GPIO_PIN_5
+#define SIG_3_GPIO_Port GPIOB
+#define SIG_2_Pin GPIO_PIN_6
+#define SIG_2_GPIO_Port GPIOB
+#define SIG_1_Pin GPIO_PIN_7
+#define SIG_1_GPIO_Port GPIOB
 #define LORA_AUX_Pin GPIO_PIN_9
 #define LORA_AUX_GPIO_Port GPIOB
 

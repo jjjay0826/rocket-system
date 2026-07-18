@@ -527,7 +527,9 @@ int main(void)
       clk_hsi_fallback ? "HSI-FB(HSE FAIL!)" : "HSE", rst,
       bus_clamped ? "  BUS=CLAMPED!(SPI2 Hi-Z)" : "");
     cdc_write(b);
-    if (mod.lora) LoRa_SendStr(b); }
+    /* PB7(SIG_1) 接地時拉低，禁用 LoRa */
+    uint8_t lora_init_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
+    if (mod.lora && !lora_init_disabled) LoRa_SendStr(b); }
 
   /* ---- IMU 校準（僅在 IMU 成功初始化時執行）---- */
   if (mod.imu) {
@@ -988,7 +990,9 @@ int main(void)
     if (now - t_lora >= 500) {
       t_lora = now;
 
-      if (mod.lora) {
+      /* PB7(SIG_1) 接地時拉低，禁用 LoRa */
+      uint8_t lora_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
+      if (mod.lora && !lora_disabled) {
         /* TX 空閒時發送新封包（poll 已移至主迴圈頂部，每次迴圈執行）*/
         if (!LoRa_IsBusy()) {
           const char *st_s;
@@ -1158,7 +1162,7 @@ int main(void)
     uint32_t out_interval = (flight_state == FLIGHT_LANDED) ? LAND_LOG_INTERVAL : 500UL;
     if (now - t_out >= out_interval) {
       t_out = now;
-      HAL_GPIO_TogglePin(LED_B10_GPIO_Port, LED_B10_Pin);   /* 狀態燈 */
+      /* LED_B10 toggle removed to serve as dedicated LoRa TX flicker */
 
       GNSS_Data gd = GNSS_GetData();
 
@@ -1244,6 +1248,82 @@ int main(void)
         if (!cmd_is_typing()) { cdc_write(b); }
       }
     }
+
+    /* ─── 互動功能與指示燈狀態更新 ─── */
+    {
+      // 1. 讀取 LoRa 禁用狀態 (PB7 / SIG_1_Pin 接地)
+      uint8_t lora_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
+
+      // 2. 左側指示燈 B10（Active Low：RESET=亮，SET=滅）
+      //    LoRa 傳輸中亮；LoRa 禁用或無傳輸則滅
+      if (mod.lora && !lora_disabled && lora_tx_pending) {
+        HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_RESET); /* 亮 */
+      } else {
+        HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_SET);   /* 滅 */
+      }
+
+      // 3. 右側指示燈 B2（Active Low：RESET=亮，SET=滅）系統綜合狀態
+      static uint32_t t_led_b2 = 0;
+      if (now - t_led_b2 >= 50) {
+        t_led_b2 = now;
+        uint8_t sen_ok = (mod.bmp585 && mod.imu);
+        uint8_t sd_ok  = mod.sdcard;
+        uint8_t gps_ok = GNSS_GetData().valid;
+
+        if (!sen_ok || !sd_ok) {
+          // 優先級 1：硬體故障 -> 快速閃爍 (5Hz, 每 200ms 週期：前 100ms 亮，後 100ms 滅)
+          if ((now % 200) < 100) {
+            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_RESET); /* 亮 */
+          } else {
+            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_SET);   /* 滅 */
+          }
+        } else if (!gps_ok) {
+          // 優先級 2：GNSS 定位中 -> 慢速閃爍 (1Hz, 每 1000ms 週期：前 500ms 亮，後 500ms 滅)
+          if ((now % 1000) < 500) {
+            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_RESET); /* 亮 */
+          } else {
+            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_SET);   /* 滅 */
+          }
+        } else {
+          // 優先級 3：一切正常 -> 恆亮
+          HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_RESET);   /* 亮 */
+        }
+      }
+
+      // 4. 手動點火按鈕偵測與防呆 (PB6 / SIG_2_Pin 接地)
+      static uint8_t  manual_fire_active = 0;
+      static uint32_t manual_fire_start_t = 0;
+      static GPIO_PinState manual_fire_btn_last = GPIO_PIN_SET;
+
+      GPIO_PinState btn_state = HAL_GPIO_ReadPin(GPIOB, SIG_2_Pin);
+      
+      // 偵測下降沿 (1 -> 0, 按下)
+      if (btn_state == GPIO_PIN_RESET && manual_fire_btn_last == GPIO_PIN_SET) {
+        // 僅在非手動點火期間、且不在飛行開傘點火狀態下允許觸發
+        if (!manual_fire_active && flight_state != FLIGHT_DEPLOYING) {
+          manual_fire_active = 1;
+          manual_fire_start_t = now;
+          // 同時拉高發火通道 1 (PA0) 和通道 2 (PA1)
+          HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_SET);
+          HAL_GPIO_WritePin(FIRE_7V_2_GPIO_Port, FIRE_7V_2_Pin, GPIO_PIN_SET);
+          cdc_write("*** MANUAL FIRE ACTIVE (1s) ***\r\n");
+        }
+      }
+      manual_fire_btn_last = btn_state;
+
+      // 1 秒定時結束，自動拉低
+      if (manual_fire_active) {
+        if (now - manual_fire_start_t >= 1000UL) {
+          manual_fire_active = 0;
+          // 若目前並非飛行開傘中，則安全拉低點火腳
+          if (flight_state != FLIGHT_DEPLOYING) {
+            HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(FIRE_7V_2_GPIO_Port, FIRE_7V_2_Pin, GPIO_PIN_RESET);
+          }
+          cdc_write("*** MANUAL FIRE ENDED ***\r\n");
+        }
+      }
+    }
   }
   /* USER CODE END 3 */
 }
@@ -1265,11 +1345,6 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  /* ── 主時鐘 HSE 25MHz(黑丸版晶振)；起振失敗自動降級 HSI ────────────────
-   * 兩路皆達 SYSCLK=84MHz / USB 48MHz,差別只在精度(HSI ±1%)。
-   * 實案(2026-07-09):一塊黑丸版 HSE 不起振 → 舊碼在 GPIO init 前就進
-   * Error_Handler = 全暗+無 USB 磚死(DFU 卻能進,因 bootloader 走 HSI)。
-   * 現在:降級續跑並設 clk_hsi_fallback,開機報告印 CLK=HSI-FB 可診斷。*/
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -1280,21 +1355,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
-    clk_hsi_fallback = 1;                    /* HSE 死 → HSI 16MHz 降級 */
-    RCC_OscInitStruct = (RCC_OscInitTypeDef){0};
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-    RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-    RCC_OscInitStruct.PLL.PLLM = 8;          /* 16/8=2MHz = ST 建議 VCO 輸入 */
-    RCC_OscInitStruct.PLL.PLLN = 168;        /* ×168=336 → /4=84MHz、/7=48MHz */
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
-    RCC_OscInitStruct.PLL.PLLQ = 7;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-    {
-      Error_Handler();                       /* HSI 也掛 = 晶片級故障,無解 */
-    }
+    Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
@@ -1309,12 +1370,6 @@ void SystemClock_Config(void)
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
-  }
-
-  if (!clk_hsi_fallback) {
-    /* CSS 時鐘安全系統：飛行中 HSE 失效(震動可殺機械晶振)→ 硬體自動切 HSI
-     * 並觸發 NMI → HAL_RCC_CSSCallback 重配 PLL,飛控/開傘狀態機不死。 */
-    HAL_RCC_EnableCSS();
   }
 }
 

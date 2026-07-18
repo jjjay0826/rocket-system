@@ -6,35 +6,35 @@ This document describes the custom interactive features and the indicator light 
 
 ## 1. Pin Assignments (GPIOB Pin Reconfiguration)
 
-The following pins, previously configured as outputs (`SIG_OUT_3/2/1`), have been reconfigured as inputs with internal pull-up resistors (`GPIO_PULLUP`):
+The following pins, previously configured as outputs (`SIG_3/2/1`), are reconfigured in the `.ioc` as inputs with internal pull-up resistors (`GPIO_PULLUP`):
 
 | Signal Name | MCU Pin | HW Connection Type | Function | Active State |
 | :--- | :--- | :--- | :--- | :--- |
-| **`SIG_OUT_3_Pin`** | **`PB5`** | Jumper Cap (to **3.3V**) | **Disable LoRa Telemetry** | `HIGH` (Short to 3.3V = Disabled) |
-| **`SIG_OUT_2_Pin`** | **`PB6`** | Tactile Button (to **3.3V**) | **Manual Ignition Trigger** | `HIGH` (Rising edge = Trigger) |
-| **`SIG_OUT_1_Pin`** | **`PB7`** | Reserved (to 3.3V) | Unused Input Pull-down | Reserved |
+| **`SIG_1_Pin`** | **`PB7`** | Jumper Cap (to **GND**) | **Disable LoRa Telemetry** | `LOW` (Short to GND = Disabled) |
+| **`SIG_2_Pin`** | **`PB6`** | Tactile Button (to **GND**) | **Manual Ignition Trigger** | `LOW` (Falling edge = Trigger) |
+| **`SIG_3_Pin`** | **`PB5`** | Unused | Reserved / Unused | N/A |
 
-> ⚠️ **重要接線說明（PULLDOWN 模式）**：
-> - 三支腳使用**內部下拉電阻**，浮空時電位為 LOW（0V），與原 OUTPUT LOW 相同，不影響感測器電路。
-> - 跳線帽/按鈕的一端接 **3.3V**（不是 GND），另一端接對應引腳。
-> - 輸入 HIGH (3.3V) = 功能啟動；LOW (浮空) = 正常/停用。
+> ⚠️ **重要接線說明（PULLUP 模式）**：
+> - 互動引腳使用**內部上拉電阻**，懸空時預設為 HIGH（3.3V）。
+> - 跳線帽/按鈕的一端接 **GND**，另一端接對應引腳。
+> - 輸入 LOW (0V) = 功能啟動；HIGH (懸空) = 正常/停用。
 
 ---
 
 ## 2. Interactive Feature Logic
 
-### A. LoRa Telemetry Disable Switch (PB5)
-- **Operation**: Connect a jumper cap between **PB5** and **GND** to pull the pin Low.
+### A. LoRa Telemetry Disable Switch (PB7)
+- **Operation**: Connect a jumper cap between **PB7** (`SIG_1`) and **GND** to pull the pin Low.
 - **Logic**:
-  - The firmware actively queries the pin state. If detected as Low:
+  - The firmware actively queries the PB7 state. If detected as Low:
     - Normal 500ms telemetry packets will not be transmitted via LoRa.
     - The initial startup diagnostic report will not be transmitted via LoRa.
     - Left indicator LED (`B10`) remains **solid OFF**.
-  - When the jumper cap is removed (PB5 goes High), LoRa transmission automatically resumes.
+  - When the jumper cap is removed (PB7 goes High), LoRa transmission automatically resumes.
 - **Benefit**: Saves power during testing or launchpad waiting phases, and avoids radio interference.
 
 ### B. One-Shot Safe Manual Ignition Trigger (PB6)
-- **Operation**: Connect a temporary push button between **PB6** and **GND**. Press the button to trigger ignition.
+- **Operation**: Connect a temporary push button between **PB6** (`SIG_2`) and **GND**. Press the button to trigger ignition.
 - **Ignition Outputs**: Triggers both channel 1 (`FIRE_7V_1` / `PA0`) and channel 2 (`FIRE_7V_2` / `PA1`).
 - **Safety & Anti-Stuck Guard (One-Shot)**:
   - **Edge-Triggered**: Ignition is initiated exclusively by a **falling edge** (from High to Low).
