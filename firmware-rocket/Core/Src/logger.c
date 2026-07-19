@@ -40,6 +40,9 @@ static FSIZE_t saved_wpos = 0;
 
 void logger_init(void) {
     sd_ok = 0;
+    
+    extern void SD_disk_deinit(void);
+    SD_disk_deinit(); /* Force hardware SPI re-init to prevent long timeouts */
 
     /* 首次呼叫才綁定 SDIO 驅動（MX_FATFS_Init 只能呼叫一次）*/
     if (!fatfs_linked) {

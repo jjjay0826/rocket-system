@@ -721,7 +721,7 @@ int main(void)
     /* ─── SD 卡動態重試與熱插拔恢復機制 ─── */
     if (sd_init_done && !logger_is_ready()) {
       static uint32_t sd_reinit_t = 0;
-      if (now - sd_reinit_t >= 3000UL) {
+      if (now - sd_reinit_t >= 5000UL) {
         sd_reinit_t = now;
         logger_init();
         if (logger_is_ready()) {

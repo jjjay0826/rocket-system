@@ -246,6 +246,10 @@ DSTATUS SD_disk_initialize(BYTE pdrv)
     return Stat;
 }
 
+void SD_disk_deinit(void) {
+    Stat = STA_NOINIT;
+}
+
 DRESULT SD_disk_read(BYTE pdrv, BYTE *buff, DWORD sector, UINT count)
 {
     if (pdrv || !count) return RES_PARERR;

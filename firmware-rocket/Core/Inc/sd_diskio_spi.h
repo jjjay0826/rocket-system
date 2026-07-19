@@ -24,10 +24,19 @@
 #ifndef __SD_DISKIO_SPI_H
 #define __SD_DISKIO_SPI_H
 
+#include "integer.h"
 #include "diskio.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* 初始化 / 查詢狀態 */
 DSTATUS SD_disk_initialize(BYTE pdrv);
 DSTATUS SD_disk_status(BYTE pdrv);
+void    SD_disk_deinit(void);
+
+/* 讀寫與控制 */
 DRESULT SD_disk_read(BYTE pdrv, BYTE *buff, DWORD sector, UINT count);
 DRESULT SD_disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT count);
 DRESULT SD_disk_ioctl(BYTE pdrv, BYTE cmd, void *buff);
