@@ -718,6 +718,19 @@ int main(void)
       }
     }
 
+    /* ─── SD 卡動態重試與熱插拔恢復機制 ─── */
+    if (sd_init_done && !logger_is_ready()) {
+      static uint32_t sd_reinit_t = 0;
+      if (now - sd_reinit_t >= 3000UL) {
+        sd_reinit_t = now;
+        logger_init();
+        if (logger_is_ready()) {
+          mod.sdcard = 1;
+          cdc_write("SD: OK (RECOVERED)\r\n");
+        }
+      }
+    }
+
     /* ─── IMU 每 10ms ─── */
     if (now - t_imu >= 10) {
       float dt = (float)(now - t_imu) * 0.001f;
