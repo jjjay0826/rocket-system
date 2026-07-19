@@ -261,7 +261,10 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
-  /* 地面端不處理電腦下行命令，只保留 USB CDC 接收機制存活 */
+  /* 地面端上行：把電腦下行 bytes 轉交 main.c 的 ring（USB→LoRa 手動開傘命令）。
+   * 須在 re-arm 前取走本包資料。Ground_OnUsbRx 只推 ring、不阻塞。*/
+  extern void Ground_OnUsbRx(const uint8_t *buf, uint32_t len);
+  Ground_OnUsbRx(Buf, *Len);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
 

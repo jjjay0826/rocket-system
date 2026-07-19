@@ -48,6 +48,26 @@ void cdc_write(const char *s)
   }
 }
 
+/* ── USB→LoRa 上行（手動開傘命令通道）─────────────────────────────────
+ * 電腦在串口打的字（CDC_Receive_FS，USB ISR）進此 ring；主迴圈組成整行後
+ * 經 LoRa 送給火箭端（火箭端 ManualDeploy 核心解析 ARM/FIRE/SAFE）。
+ * ISR 單寫 head、主迴圈單讀 tail，8-bit 索引無鎖安全。*/
+#define GND_URX_SIZE 128u
+static volatile uint8_t  g_urx[GND_URX_SIZE];
+static volatile uint16_t g_urx_head = 0;   /* CDC_Receive_FS(ISR) 寫 */
+static uint16_t          g_urx_tail = 0;   /* 主迴圈讀 */
+
+/* 由 usbd_cdc_if.c 的 CDC_Receive_FS 呼叫（USB ISR context，只推 ring 不阻塞）*/
+void Ground_OnUsbRx(const uint8_t *buf, uint32_t len)
+{
+  for (uint32_t i = 0; i < len; i++) {
+    uint16_t next = (uint16_t)((g_urx_head + 1u) % GND_URX_SIZE);
+    if (next == g_urx_tail) break;          /* 滿：丟棄剩餘 */
+    g_urx[g_urx_head] = buf[i];
+    g_urx_head = next;
+  }
+}
+
 int main(void)
 {
   HAL_Init();
@@ -58,10 +78,11 @@ int main(void)
   LoRa_Init();             /* 啟動 USART1 接收（ring buffer）*/
 
   HAL_Delay(500);
-  cdc_write("=== Ground RX ready (E22 -> USB CDC) ===\r\n");
+  cdc_write("=== Ground ready: E22<->USB (RX telemetry + TX uplink) ===\r\n");
+  cdc_write("    Uplink: type a line (e.g. ARM / FIRE <code> / SAFE) -> rocket\r\n");
 
- 
   char line[128];
+  char ul[80]; uint8_t ul_len = 0;   /* USB→LoRa 上行組行緩衝 */
   uint32_t last_debug_time = HAL_GetTick();
 
   while (1)
@@ -96,7 +117,7 @@ int main(void)
       }
     }
 
-    /* 2. 原本的接收邏輯 */
+    /* 2. 原本的接收邏輯（下行遙測）*/
     int n = LoRa_Receive((uint8_t*)line, sizeof(line));
     if (n > 0)
     {
@@ -104,7 +125,32 @@ int main(void)
       cdc_write(line);
       cdc_write("\r\n");
     }
-    
+
+    /* 3. 上行：把電腦串口打的整行（\r/\n 為界）經 LoRa 送給火箭端。
+     *    火箭端 ManualDeploy 核心解析 ARM / FIRE <碼> / SAFE。
+     *    加 '\n' 讓火箭端 LoRa_Receive 以此斷行。⚠ 與下行遙測共用 RF，
+     *    偶發碰撞→命令沒回應時操作員重送即可（ARM 會回碼當隱式 ACK）。*/
+    while (g_urx_tail != g_urx_head)
+    {
+      char c = (char)g_urx[g_urx_tail];
+      g_urx_tail = (uint16_t)((g_urx_tail + 1u) % GND_URX_SIZE);
+      if (c == '\r' || c == '\n')
+      {
+        if (ul_len > 0)
+        {
+          ul[ul_len] = '\0';
+          cdc_write("[UPLINK] "); cdc_write(ul); cdc_write("\r\n");
+          ul[ul_len] = '\n'; ul[ul_len + 1] = '\0';   /* 補斷行給 RF */
+          LoRa_SendStr(ul);
+          ul_len = 0;
+        }
+      }
+      else if (ul_len < (uint8_t)(sizeof(ul) - 2))
+      {
+        ul[ul_len++] = c;
+      }
+    }
+
   }
 }
 
