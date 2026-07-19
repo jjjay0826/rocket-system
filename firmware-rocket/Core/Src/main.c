@@ -1387,12 +1387,24 @@ int main(void)
       // 4. 手動點火按鈕偵測與防呆 (PB6 / SIG_2_Pin 接地)
       static uint8_t  manual_fire_active = 0;
       static uint32_t manual_fire_start_t = 0;
+      static GPIO_PinState stable_btn_state = GPIO_PIN_SET;
       static GPIO_PinState manual_fire_btn_last = GPIO_PIN_SET;
+      static uint32_t last_state_change_t = 0;
 
-      GPIO_PinState btn_state = HAL_GPIO_ReadPin(GPIOB, SIG_2_Pin);
+      GPIO_PinState raw_btn_state = HAL_GPIO_ReadPin(GPIOB, SIG_2_Pin);
+      
+      // 軟體去彈跳 (Debounce)
+      if (raw_btn_state != stable_btn_state) {
+        if (now - last_state_change_t >= 50UL) { // 50ms 穩定時間
+          stable_btn_state = raw_btn_state;
+          last_state_change_t = now;
+        }
+      } else {
+        last_state_change_t = now;
+      }
       
       // 偵測下降沿 (1 -> 0, 按下)
-      if (btn_state == GPIO_PIN_RESET && manual_fire_btn_last == GPIO_PIN_SET) {
+      if (stable_btn_state == GPIO_PIN_RESET && manual_fire_btn_last == GPIO_PIN_SET) {
         // 僅在非手動點火期間、且不在飛行開傘點火狀態下允許觸發
         if (!manual_fire_active && flight_state != FLIGHT_DEPLOYING) {
           manual_fire_active = 1;
@@ -1400,14 +1412,14 @@ int main(void)
           // 同時拉高發火通道 1 (PA0) 和通道 2 (PA1)
           HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_SET);
           HAL_GPIO_WritePin(FIRE_7V_2_GPIO_Port, FIRE_7V_2_Pin, GPIO_PIN_SET);
-          cdc_write("*** MANUAL FIRE ACTIVE (1s) ***\r\n");
+          cdc_write("*** MANUAL FIRE ACTIVE (0.25s) ***\r\n");
         }
       }
-      manual_fire_btn_last = btn_state;
+      manual_fire_btn_last = stable_btn_state;
 
-      // 1 秒定時結束，自動拉低
+      // 0.25 秒定時結束，自動拉低
       if (manual_fire_active) {
-        if (now - manual_fire_start_t >= 1000UL) {
+        if (now - manual_fire_start_t >= 250UL) {
           manual_fire_active = 0;
           // 若目前並非飛行開傘中，則安全拉低點火腳
           if (flight_state != FLIGHT_DEPLOYING) {
