@@ -45,9 +45,9 @@ The following pins, previously configured as outputs (`SIG_3/2/1`), are reconfig
 ---
 
 ## 3. Status LED Indicators
-
-> **⚠️ 硬體注意**: 兩個 LED (B2, B10) 均為 **Active Low（低電位亮）**。  
-> 韌體以 `GPIO_PIN_RESET` (低電位) 點亮、`GPIO_PIN_SET` (高電位) 熄滅。
+> **⚠️ 硬體與電位注意**:
+> - **B10 LED**（左側）與 **B2 LED**（右側）均為 **Active High（高電位亮）**。
+> - 韌體以 `GPIO_PIN_SET` (高電位) 點亮、`GPIO_PIN_RESET` (低電位) 熄滅。
 
 The behavior of the left and right indicator LEDs has been redefined to present more meaningful system status:
 

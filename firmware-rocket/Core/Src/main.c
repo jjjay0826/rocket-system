@@ -1234,15 +1234,15 @@ int main(void)
       // 1. 讀取 LoRa 禁用狀態 (PB7 / SIG_1_Pin 接地)
       uint8_t lora_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
 
-      // 2. 左側指示燈 B10（Active Low：RESET=亮，SET=滅）
+      // 2. 左側指示燈 B10（Active High：SET=亮，RESET=滅）
       //    LoRa 傳輸中亮；LoRa 禁用或無傳輸則滅
       if (mod.lora && !lora_disabled && lora_tx_pending) {
-        HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_RESET); /* 亮 */
+        HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_SET);   /* 亮 */
       } else {
-        HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_SET);   /* 滅 */
+        HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_RESET); /* 滅 */
       }
 
-      // 3. 右側指示燈 B2（Active Low：RESET=亮，SET=滅）系統綜合狀態
+      // 3. 右側指示燈 B2（Active High：SET=亮，RESET=滅）系統綜合狀態
       static uint32_t t_led_b2 = 0;
       if (now - t_led_b2 >= 50) {
         t_led_b2 = now;
@@ -1253,20 +1253,20 @@ int main(void)
         if (!sen_ok || !sd_ok) {
           // 優先級 1：硬體故障 -> 快速閃爍 (5Hz, 每 200ms 週期：前 100ms 亮，後 100ms 滅)
           if ((now % 200) < 100) {
-            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_RESET); /* 亮 */
+            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_SET);   /* 亮 */
           } else {
-            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_SET);   /* 滅 */
+            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_RESET); /* 滅 */
           }
         } else if (!gps_ok) {
           // 優先級 2：GNSS 定位中 -> 慢速閃爍 (1Hz, 每 1000ms 週期：前 500ms 亮，後 500ms 滅)
           if ((now % 1000) < 500) {
-            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_RESET); /* 亮 */
+            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_SET);   /* 亮 */
           } else {
-            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_SET);   /* 滅 */
+            HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_RESET); /* 滅 */
           }
         } else {
           // 優先級 3：一切正常 -> 恆亮
-          HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_RESET);   /* 亮 */
+          HAL_GPIO_WritePin(LED_B2_GPIO_Port, LED_B2_Pin, GPIO_PIN_SET);     /* 亮 */
         }
       }
 

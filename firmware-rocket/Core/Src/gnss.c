@@ -19,6 +19,7 @@ static uint8_t idx = 0;
 static GNSS_Data current_data;
 static uint32_t gnss_byte_cnt  = 0;   /* 收到的總 bytes */
 static uint32_t gnss_line_cnt  = 0;   /* 收到的完整行數 */
+static uint32_t last_valid_fix_time = 0; /* 上次成功定位的時間戳 (ms) */
 
 static void gnss_parse(const char *nmea);  /* forward declaration */
 
@@ -75,8 +76,7 @@ void GNSS_ProcessLine(const char* line) {
             current_data.longitude = nmea_to_deg(parts[4], parts[5][0]);
             current_data.altitude  = atof(parts[9]);
             current_data.valid = true;
-        } else {
-            current_data.valid = false;
+            last_valid_fix_time = HAL_GetTick(); /* 更新最後有效定位時間 */
         }
     } else if (strncmp(type, "GSV", 3) == 0) {
         /* $GPGSV,totalMsg,msgNum,totalSats,...  field[3] = total sats in view */
@@ -130,6 +130,10 @@ GNSS_Data GNSS_GetData(void) {
      * pending IRQ 會保留，不丟資料）。 */
     GNSS_Data d;
     NVIC_DisableIRQ(USART2_IRQn);
+    // 逾時檢測：若超過 2 秒無有效定位資料，將 valid 設為 false
+    if (last_valid_fix_time > 0 && HAL_GetTick() - last_valid_fix_time > 2000UL) {
+        current_data.valid = false;
+    }
     d = current_data;
     NVIC_EnableIRQ(USART2_IRQn);
     return d;
