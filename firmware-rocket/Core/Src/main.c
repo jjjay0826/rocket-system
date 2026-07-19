@@ -995,15 +995,6 @@ int main(void)
       if (mod.lora && !lora_disabled) {
         /* TX 空閒時發送新封包（poll 已移至主迴圈頂部，每次迴圈執行）*/
         if (!LoRa_IsBusy()) {
-          const char *st_s;
-          switch (flight_state) {
-            case FLIGHT_IDLE:      st_s = "IDLE"; break;
-            case FLIGHT_LAUNCHED:  st_s = (mod.imu && is_boosting) ? "BOOST" : "LAUNCH"; break;
-            case FLIGHT_DEPLOYING: st_s = "APOGEE"; break;
-            case FLIGHT_DEPLOYED:  st_s = "DESCENT"; break;
-            case FLIGHT_LANDED:    st_s = "LANDED"; break;
-            default:               st_s = "IDLE"; break;
-          }
           lora_seq++;   /* 序號遞增（接收端用來偵測掉包）*/
           /* ── LoRa 遙測封包格式 ───────────────────────────────────────────
            * ⚠ 此格式是「火箭端 ↔ 地面端」共用協定。
@@ -1015,35 +1006,24 @@ int main(void)
           int cb_eff = mod.imu ? cond_B : (mod.bmp585 ? 1 : 0);
           GNSS_Data gd = GNSS_GetData();
 
+          uint8_t mod_hex = (mod.bmp585 << 3) | (mod.imu << 2) | (mod.lora << 1) | (mod.sdcard << 0);
+          uint8_t pyro_hex = (cond_A << 3) | (ca_eff << 2) | (cond_B << 1) | (cb_eff << 0);
+
           if (gd.valid) {
             lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
-              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f TC%.1f RAW0x%06lX ST:%s MOD%d%d%d%d GPS:%s SV:%d,%d BF:0,%lu CA:%d,%d CB:%d,%d PK%.1f SD%lu LR:%lu,%lu,%lu LAT%+0.5f LON%+0.5f\r\n",
+              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:1,%u C:%X LAT%+0.5f LON%+0.5f\r\n",
               (unsigned long)now, ax, ay, az,
               gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
-              press, rel_alt, kf2_h, kf2_v, total_g, tc,
-              (unsigned long)BMP585_GetLastRaw(), st_s,
-              mod.bmp585, mod.imu, mod.lora, mod.sdcard,
-              "FIX_3D", (int)gd.sats_in_view, (int)gd.num_sats,
-              (unsigned long)main_loop_cnt,
-              (int)cond_A, ca_eff,
-              (int)cond_B, cb_eff,
-              peak_rel_alt, (unsigned long)sd_write_cnt,
-              (unsigned long)lora_seq, (unsigned long)lora_ok, (unsigned long)(lora_ok + lora_fail),
+              press, rel_alt, kf2_h, kf2_v, total_g,
+              (int)flight_state, mod_hex, (unsigned)gd.num_sats, pyro_hex,
               gd.latitude, gd.longitude);
           } else {
             lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
-              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f TC%.1f RAW0x%06lX ST:%s MOD%d%d%d%d GPS:%s SV:%d,%d BF:0,%lu CA:%d,%d CB:%d,%d PK%.1f SD%lu LR:%lu,%lu,%lu\r\n",
+              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:0,0 C:%X\r\n",
               (unsigned long)now, ax, ay, az,
               gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
-              press, rel_alt, kf2_h, kf2_v, total_g, tc,
-              (unsigned long)BMP585_GetLastRaw(), st_s,
-              mod.bmp585, mod.imu, mod.lora, mod.sdcard,
-              "NO_FIX", (int)gd.sats_in_view, (int)gd.num_sats,
-              (unsigned long)main_loop_cnt,
-              (int)cond_A, ca_eff,
-              (int)cond_B, cb_eff,
-              peak_rel_alt, (unsigned long)sd_write_cnt,
-              (unsigned long)lora_seq, (unsigned long)lora_ok, (unsigned long)(lora_ok + lora_fail));
+              press, rel_alt, kf2_h, kf2_v, total_g,
+              (int)flight_state, mod_hex, pyro_hex);
           }
 
           if (lora_n > 0 && lora_n < (int)sizeof(lora_pkt)) {
