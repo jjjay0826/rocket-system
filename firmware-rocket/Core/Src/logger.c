@@ -55,16 +55,43 @@ void logger_init(void) {
     if (fres != FR_OK) { return; }
 
     /* 找下一個沒用過的 logN.csv → 每次上電開新檔，不覆寫上一次飛行資料。
-     * 用 FA_CREATE_NEW 逐號嘗試：檔案已存在會回 FR_EXIST 就換下一號。*/
+     * 舊版以 f_open(..., FA_CREATE_NEW) 順序重試，檔案多時慢速 SPI 下極耗時。
+     * 改為單次遍歷根目錄（f_opendir/f_readdir），找出目前最大 logN.csv 編號，然後開新檔。*/
     {
-        int idx;
-        for (idx = 1; idx <= 9999; idx++) {
-            snprintf(cur_logname, sizeof(cur_logname), "log%d.csv", idx);
-            fres = f_open(&file, cur_logname, FA_WRITE | FA_CREATE_NEW);
-            if (fres == FR_OK)    break;   /* 建立成功＝此編號還沒用過 */
-            if (fres != FR_EXIST) return;  /* 非「已存在」的錯誤（如無卡）→ 放棄 */
+        int max_idx = 0;
+        DIR dir;
+        static FILINFO fno; /* 使用 static 避免佔用過多 stack 空間 */
+
+        fres = f_opendir(&dir, (TCHAR const*)USERPath);
+        if (fres == FR_OK) {
+            for (;;) {
+                fres = f_readdir(&dir, &fno);
+                if (fres != FR_OK || fno.fname[0] == 0) break;
+                if (fno.fattrib & AM_DIR) continue;
+
+                // 匹配 log[N].csv 或 log[N].CSV
+                if (strncmp(fno.fname, "log", 3) == 0) {
+                    int val = 0;
+                    char *p = fno.fname + 3;
+                    while (*p >= '0' && *p <= '9') {
+                        val = val * 10 + (*p - '0');
+                        p++;
+                    }
+                    if (strcmp(p, ".csv") == 0 || strcmp(p, ".CSV") == 0) {
+                        if (val > max_idx) {
+                            max_idx = val;
+                        }
+                    }
+                }
+            }
+            f_closedir(&dir);
         }
-        if (fres != FR_OK) return;         /* 9999 號都用光（幾乎不可能）*/
+
+        int idx = max_idx + 1;
+        if (idx > 9999) idx = 9999;
+        snprintf(cur_logname, sizeof(cur_logname), "log%d.csv", idx);
+        fres = f_open(&file, cur_logname, FA_WRITE | FA_CREATE_NEW);
+        if (fres != FR_OK) return;
     }
     /* 檔案剛建立，大小=0、append_pos=0；預分配從 byte 0 開始一次配滿 8MB */
 
