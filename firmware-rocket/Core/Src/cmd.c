@@ -141,6 +141,10 @@ void cmd_show_help(void)
   cmd_out("PINTEST- Sensor-bus GPIO probe (B13/B15 slow toggle, ~16s, then reboot)\r\n");
   cmd_out("PINHOLD- Static pin hold 3x60s phases for DMM current probing, then reboot\r\n");
   cmd_out("BUSFLOAT- Release SPI2 pins to Hi-Z until reboot (probe-safe mode)\r\n");
+  cmd_out("-- Manual deploy (FIRES IGNITER - keep it disconnected on bench!) --\r\n");
+  cmd_out("ARM        - arm manual deploy (replies a 4-digit code)\r\n");
+  cmd_out("FIRE <code>- fire deploy within 10s of ARM (code must match)\r\n");
+  cmd_out("SAFE       - disarm manual deploy\r\n");
   cmd_out("HELP   - Show this message\r\n");
   cmd_out("==============================================\r\n");
   cmd_out("Note: SD card saves data automatically.\r\n");
@@ -319,6 +323,14 @@ static void process_command_exec(const char *cmd)
     }
     cmd_out("\r\nBUSFLOAT: B13/B14/B15 -> analog Hi-Z, CS held HIGH (until reboot)\r\n"
             "Bus now fed only by module pullups - safe to probe.\r\n\r\n> ");
+  }
+  else if (strncmp(cmd, "ARM", 3) == 0 ||
+           strncmp(cmd, "FIRE", 4) == 0 ||
+           strncmp(cmd, "SAFE", 4) == 0)
+  {
+    /* 手動開傘（USB 通道）：共用 main.c 的安全核心；回覆走 CDC(cmd_out) */
+    ManualDeploy_HandleLine(cmd, cmd_out);
+    cmd_out("\r\n> ");
   }
   else
   {

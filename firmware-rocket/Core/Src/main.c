@@ -393,6 +393,81 @@ static float kf_update(float meas)
   return kf_p_est;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+ * 手動開傘（USB CDC + LoRa 共用核心）
+ * 兩段式安全：ARM → 回覆「動態 4 位通關碼」→ 限時 10s 內 'FIRE <碼>' 才點火。
+ *   · 防單一亂碼/RF 雜訊誤觸（需先 ARM，且碼必須精確吻合）
+ *   · 防重放（碼每次 ARM 由 tick 產生而變動；逾時自動解除）
+ *   · 已在 DEPLOYING/DEPLOYED 則拒絕重複觸發
+ * 點火走與自動開傘「相同」的 DEPLOYING 路徑 → 共用 2s 脈衝收尾邏輯。
+ * ⚠ 手動開傘「刻意」繞過自動開傘的 1.3g/高度安全閘門——這是人工 override
+ *   的本質，責任在操作員。地面測試務必電火頭斷開；真正的地面安全靠「電火頭
+ *   發射台最後接」＋兩段式流程。未桌面驗證前勿信賴。
+ * ═══════════════════════════════════════════════════════════════════════ */
+static volatile uint8_t manual_armed   = 0;
+static uint32_t         manual_arm_code = 0;
+static uint32_t         manual_arm_time = 0;
+#define MANUAL_ARM_TIMEOUT_MS  10000UL
+
+/* LoRa 回覆包裝：LoRa_SendStr 回傳 int，包成 reply 回呼要的 void(const char*) */
+static void lora_cmd_reply(const char *s) { (void)LoRa_SendStr(s); }
+
+/* 主迴圈每輪呼叫：ARM 逾時自動解除，縮小誤觸窗口 */
+void ManualDeploy_Poll(void)
+{
+  if (manual_armed && (HAL_GetTick() - manual_arm_time) > MANUAL_ARM_TIMEOUT_MS)
+    manual_armed = 0;
+}
+
+/* 處理一行命令（ARM / FIRE <碼> / SAFE）。回覆經 reply 回呼送回來源通道
+ * （USB→cmd_out / LoRa→lora_cmd_reply）。非命令行忽略（LoRa 雜訊不誤動作）。*/
+void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
+{
+  if (!line || !reply) return;
+  char rb[96];
+
+  if (strncmp(line, "ARM", 3) == 0 &&
+      (line[3] == '\0' || line[3] == '\r' || line[3] == '\n' || line[3] == ' ')) {
+    manual_arm_code = HAL_GetTick() % 10000UL;
+    manual_arm_time = HAL_GetTick();
+    manual_armed    = 1;
+    snprintf(rb, sizeof(rb),
+      "MANUAL ARMED. Reply 'FIRE %04lu' within 10s ('SAFE' aborts).\r\n",
+      (unsigned long)manual_arm_code);
+    reply(rb);
+    return;
+  }
+  if (strncmp(line, "SAFE", 4) == 0) {
+    manual_armed = 0;
+    reply("MANUAL SAFE (disarmed).\r\n");
+    return;
+  }
+  if (strncmp(line, "FIRE", 4) == 0) {
+    if (!manual_armed) { reply("[REJECT] not armed - send ARM first.\r\n"); return; }
+    if ((HAL_GetTick() - manual_arm_time) > MANUAL_ARM_TIMEOUT_MS) {
+      manual_armed = 0; reply("[REJECT] ARM expired - send ARM again.\r\n"); return;
+    }
+    /* 手動解析 FIRE 後的數字（避開 sscanf 連結成本）*/
+    const char *p = line + 4;
+    while (*p == ' ') p++;
+    uint32_t code = 0; int ndig = 0;
+    while (*p >= '0' && *p <= '9') { code = code * 10u + (uint32_t)(*p - '0'); p++; ndig++; }
+    if (ndig == 0)               { reply("[REJECT] need 'FIRE <code>'.\r\n"); return; }
+    if (code != manual_arm_code)  { reply("[REJECT] wrong code.\r\n"); return; }
+    if (flight_state == FLIGHT_DEPLOYING || flight_state == FLIGHT_DEPLOYED) {
+      manual_armed = 0; reply("[REJECT] already deployed.\r\n"); return;
+    }
+    /* ── 全數通過：點火（走自動開傘同一 DEPLOYING 路徑）── */
+    manual_armed   = 0;
+    deploy_time_ms = HAL_GetTick();
+    flight_state   = FLIGHT_DEPLOYING;
+    HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
+    reply("*** MANUAL DEPLOY FIRED ***\r\n");
+    return;
+  }
+  /* 其他行忽略 */
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -695,6 +770,16 @@ int main(void)
     /* ─── 指令系統 ─── */
     cmd_execute_pending();
     cmd_flush_echo();
+
+    /* ─── 手動開傘：ARM 逾時自動解除 ＋ LoRa 上行命令 ───
+     * LoRa_Receive 取一整行（'\n' 為界、已去 '\r'）→ 餵入共用安全核心；
+     * 回覆走 LoRa 送回地面。非 ARM/FIRE/SAFE 的行被核心忽略（雜訊安全）。*/
+    ManualDeploy_Poll();
+    if (mod.lora) {
+      static uint8_t lrx[80];
+      int lr = LoRa_Receive(lrx, (uint8_t)sizeof(lrx));
+      if (lr > 0) ManualDeploy_HandleLine((char *)lrx, lora_cmd_reply);
+    }
 
     /* ─── SD 卡延遲初始化（啟動後 3 秒；失敗每 3s 自動重試，最多 5 次）───
      * 實測：第一次上電偶發 cmd0 回亂碼(如 0x3F)，是上電初期電源/訊號未穩；

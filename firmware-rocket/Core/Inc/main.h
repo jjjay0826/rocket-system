@@ -53,7 +53,10 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+/* 手動開傘（定義於 main.c）：cmd.c(USB) 與主迴圈(LoRa) 共用。
+ * reply 為回覆回呼，把結果送回命令來源通道。*/
+void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *));
+void ManualDeploy_Poll(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
