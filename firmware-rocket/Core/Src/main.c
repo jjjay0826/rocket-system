@@ -1249,9 +1249,15 @@ int main(void)
 
       // 2. 左側指示燈 B10（Active High：SET=亮，RESET=滅）
       //    LoRa 傳輸中亮；LoRa 禁用或無傳輸則滅
-      if (mod.lora && !lora_disabled && lora_tx_pending) {
-        HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_SET);   /* 亮 */
-      } else {
+      if (mod.lora ) {
+        if(lora_disabled){
+          HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_SET);   /* 亮 */      
+        } else if(lora_tx_pending){
+          HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_SET);   /* 亮 */
+        } else {
+          HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_RESET); /* 滅 */
+        }
+      }else {
         HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_RESET); /* 滅 */
       }
 
