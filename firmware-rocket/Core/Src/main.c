@@ -54,7 +54,7 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
                                  * （比 1.3g 僅晚 ~0.35s，20s 備援起點幾乎不動）；
                                  * 1.3g 地面搬運甩動就可能連續 200ms 超標＝誤判離架
                                  * →20s 後備援點火（無 arming 下極危險），2.5g 甩不出來 */
-#define DEPLOY_PULSE_MS  2000UL   /* GPIO HIGH 持續時間 ms */
+#define DEPLOY_PULSE_MS  1000UL   /* GPIO HIGH 持續時間 ms (所有點火/降落傘/氣囊/桌測統一由本變數決定) */
 /* ---- 開傘觸發條件（改這裡調整） ----
  * 邏輯：(A AND B) OR C
  *   A: 氣壓高度低於最高點 DEPLOY_DROP_M 以上
@@ -122,7 +122,7 @@ void SystemClock_Config(void);
 typedef enum {
     FLIGHT_IDLE,       /* 地面靜置，等待離架 */
     FLIGHT_LAUNCHED,   /* 離架後，監視高度與時間 */
-    FLIGHT_DEPLOYING,  /* 開傘訊號輸出中（2 秒） */
+    FLIGHT_DEPLOYING,  /* 開傘訊號輸出中（由 DEPLOY_PULSE_MS 決定，預設 1 秒） */
     FLIGHT_DEPLOYED,   /* 開傘完成，等待落地 */
     FLIGHT_LANDED      /* 落地確認，進入低功耗記錄模式 */
 } FlightState_t;
@@ -405,7 +405,7 @@ static float kf_update(float meas)
  *   · 防單一亂碼/RF 雜訊誤觸（需先 ARM，且碼必須精確吻合）
  *   · 防重放（碼每次 ARM 由 tick 產生而變動；逾時自動解除）
  *   · 已在 DEPLOYING/DEPLOYED 則拒絕重複觸發
- * 點火走與自動開傘「相同」的 DEPLOYING 路徑 → 共用 2s 脈衝收尾邏輯。
+ * 點火走與自動開傘「相同」的 DEPLOYING 路徑 → 共用 DEPLOY_PULSE_MS 脈衝收尾邏輯。
  * ⚠ 手動開傘「刻意」繞過自動開傘的 1.3g/高度安全閘門——這是人工 override
  *   的本質，責任在操作員。地面測試務必電火頭斷開；真正的地面安全靠「電火頭
  *   發射台最後接」＋兩段式流程。未桌面驗證前勿信賴。
@@ -431,8 +431,8 @@ static uint32_t manual_arm_timeout(void)
 static void lora_cmd_reply(const char *s) { (void)LoRa_SendStr(s); }
 
 /* 氣囊發火（FIRE_7V_1/PA0/7V_OUT1）脈衝狀態：獨立於開傘狀態機——
- * 氣囊不改 flight_state，2s 脈衝由 Poll 收尾（與 DEPLOY_PULSE_MS 同長，
- * 氣囊硬體若需不同脈寬改這裡）。 */
+ * 氣囊不改 flight_state，脈衝由 Poll 收尾（統一使用 DEPLOY_PULSE_MS，
+ * 氣囊與降落傘皆以此變數為準）。 */
 static volatile uint8_t abg_active  = 0;
 static uint32_t         abg_fire_ms = 0;
 
@@ -539,7 +539,7 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
         }
         manual_armed   = 0;
         deploy_time_ms = HAL_GetTick();
-        flight_state   = FLIGHT_DEPLOYING;      /* 走自動開傘同一 2s 脈衝收尾 */
+        flight_state   = FLIGHT_DEPLOYING;      /* 走自動開傘同一 DEPLOY_PULSE_MS 脈衝收尾 */
         HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
         reply("MSG SUCCESS Parachute deployed successfully\r\n");
       } else {
@@ -782,7 +782,7 @@ int main(void)
      * ═══════════════════════════════════════════════════════════════ */
     uint32_t now = HAL_GetTick();
 
-    /* [A] DEPLOYING → DEPLOYED：脈衝 2 秒後關閉 GPIO */
+    /* [A] DEPLOYING → DEPLOYED：脈衝結束後 (DEPLOY_PULSE_MS) 關閉 GPIO */
     if (flight_state == FLIGHT_DEPLOYING &&
         (now - deploy_time_ms) >= DEPLOY_PULSE_MS) {
       HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_RESET);
