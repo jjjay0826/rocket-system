@@ -486,6 +486,12 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
   {
     uint8_t is_dpl = (strcmp(line, "#CMD:FORCE_DPL_SALT9981#") == 0);
     uint8_t is_abg = (strcmp(line, "#CMD:OPEN_ABG_SALT8872#") == 0);
+    /* #CMD: 開頭但比對不中＝打錯字/字串版本不符——回饋而非死寂
+     * （桌測手打 24 字元一字錯就全滅，沒回饋根本不知道錯在自己）*/
+    if (!is_dpl && !is_abg && strncmp(line, "#CMD:", 5) == 0) {
+      reply("[REJECT] unknown #CMD (check exact secret string).\r\n");
+      return;
+    }
     if (is_dpl || is_abg) {
       if (flight_state == FLIGHT_IDLE && !manual_armed) {
         reply("[REJECT] IDLE & not armed - send ARM first (bench unlock).\r\n");
