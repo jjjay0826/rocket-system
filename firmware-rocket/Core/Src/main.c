@@ -463,13 +463,15 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
   if (!line || !reply) return;
   char rb[96];
 
-  if (strncmp(line, "ARM", 3) == 0 &&
-      (line[3] == '\0' || line[3] == '\r' || line[3] == '\n' || line[3] == ' ')) {
+  /* ARM：手打短令與地面站秘鑰版皆可（#CMD 版=格式統一，2026-07-20）*/
+  if ((strncmp(line, "ARM", 3) == 0 &&
+       (line[3] == '\0' || line[3] == '\r' || line[3] == '\n' || line[3] == ' '))
+      || strcmp(line, "#CMD:ARM_SYSTEM_SALT7763#") == 0) {
     manual_arm_code = HAL_GetTick() % 10000UL;
     manual_arm_time = HAL_GetTick();
     manual_armed    = 1;
     snprintf(rb, sizeof(rb),
-      "MANUAL ARMED. Reply 'FIRE %04lu' within %lus ('SAFE' aborts).\r\n",
+      "MSG INFO MANUAL ARMED - FIRE %04lu within %lus (SAFE aborts)\r\n",
       (unsigned long)manual_arm_code,
       (unsigned long)(manual_arm_timeout() / 1000UL));
     reply(rb);
@@ -477,7 +479,7 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
   }
   if (strncmp(line, "SAFE", 4) == 0) {
     manual_armed = 0;
-    reply("MANUAL SAFE (disarmed).\r\n");
+    reply("MSG INFO MANUAL SAFE (disarmed)\r\n");
     return;
   }
   /* ── 遠端緊急命令（2026-07-20，對接 rocket_side_requirements.md）────
@@ -496,84 +498,85 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     uint8_t is_dpl = (strcmp(line, "#CMD:FORCE_DPL_SALT9981#") == 0);
     uint8_t is_abg = (strcmp(line, "#CMD:OPEN_ABG_SALT8872#") == 0);
     /* ── 桌測連續點火：裸脈衝（PA1）不動 flight_state，測完免 reset ──
-     * 閘：IDLE＋ARM 中限定（30s 窗內想點幾次點幾次，過期重 ARM 即可；
-     * 飛行中不受理——飛行點火走 dpl 正路）。不清 manual_armed＝連測體驗。*/
+     * 閘：ARM 中＋非上升/開傘中（2026-07-20 放寬：dpl 桌測後狀態=DEPLOYED
+     * 也可續測——DEPLOYED/LANDED 下裸脈衝無害，電火頭已耗；LAUNCHED/
+     * DEPLOYING 仍擋）。不清 manual_armed＝30s 窗內想點幾次點幾次。 */
     if (strcmp(line, "#CMD:TEST_FIRE_SALT7777#") == 0) {
-      if (flight_state != FLIGHT_IDLE) {
-        reply("[REJECT] TEST_FIRE is bench-only (IDLE).\r\n"); return;
+      if (flight_state == FLIGHT_LAUNCHED || flight_state == FLIGHT_DEPLOYING) {
+        reply("MSG WARN REJECT TEST_FIRE blocked in flight\r\n"); return;
       }
       if (!manual_armed) {
-        reply("[REJECT] not armed - send ARM first.\r\n"); return;
+        reply("MSG WARN REJECT not armed - send ARM first\r\n"); return;
       }
-      if (test_fire_active) { reply("ACK:TEST_FIRE:ALREADY\r\n"); return; }
+      if (test_fire_active) { reply("MSG WARN Test fire already active\r\n"); return; }
       test_fire_active = 1;
       test_fire_ms     = HAL_GetTick();
       HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
-      reply("ACK:TEST_FIRE:SUCCESS\r\n");
+      reply("MSG SUCCESS Test fire pulse started\r\n");
       return;
     }
     /* #CMD: 開頭但比對不中＝打錯字/字串版本不符——回饋而非死寂
      * （桌測手打 24 字元一字錯就全滅，沒回饋根本不知道錯在自己）*/
     if (!is_dpl && !is_abg && strncmp(line, "#CMD:", 5) == 0) {
-      reply("[REJECT] unknown #CMD (check exact secret string).\r\n");
+      reply("MSG WARN Unknown CMD - check exact secret string\r\n");
       return;
     }
     if (is_dpl || is_abg) {
       if (flight_state == FLIGHT_IDLE && !manual_armed) {
-        reply("[REJECT] IDLE & not armed - send ARM first (bench unlock).\r\n");
+        reply("MSG WARN REJECT IDLE and not armed - ARM first (bench unlock)\r\n");
         return;
       }
       if (flight_state != FLIGHT_IDLE
           && (HAL_GetTick() - launch_time_ms) < 10000UL) {
-        reply("[REJECT] ascent guard (<10s after launch).\r\n"); return;
+        reply("MSG WARN REJECT ascent guard (<10s after launch)\r\n"); return;
       }
       if (flight_state == FLIGHT_LANDED) {
-        reply("[REJECT] already landed.\r\n"); return;
+        reply("MSG WARN REJECT already landed\r\n"); return;
       }
       if (is_dpl) {
         if (flight_state == FLIGHT_DEPLOYING || flight_state == FLIGHT_DEPLOYED) {
-          reply("[REJECT] already deployed.\r\n"); return;
+          reply("MSG WARN REJECT already deployed\r\n"); return;
         }
         manual_armed   = 0;
         deploy_time_ms = HAL_GetTick();
         flight_state   = FLIGHT_DEPLOYING;      /* 走自動開傘同一 2s 脈衝收尾 */
         HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
-        reply("ACK:FORCE_DPL:SUCCESS\r\n");
+        reply("MSG SUCCESS Parachute deployed successfully\r\n");
       } else {
-        if (abg_active) { reply("ACK:OPEN_ABG:ALREADY\r\n"); return; }
+        if (abg_active) { reply("MSG WARN Airbag already firing\r\n"); return; }
         abg_active  = 1;                        /* 收尾在 ManualDeploy_Poll */
         abg_fire_ms = HAL_GetTick();
         HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_SET);
-        reply("ACK:OPEN_ABG:SUCCESS\r\n");
+        reply("MSG INFO Airbag inflation started\r\n");
       }
       return;
     }
   }
   if (strncmp(line, "FIRE", 4) == 0) {
-    if (!manual_armed) { reply("[REJECT] not armed - send ARM first.\r\n"); return; }
+    if (!manual_armed) { reply("MSG WARN REJECT not armed - send ARM first\r\n"); return; }
     if ((HAL_GetTick() - manual_arm_time) > manual_arm_timeout()) {
-      manual_armed = 0; reply("[REJECT] ARM expired - send ARM again.\r\n"); return;
+      manual_armed = 0; reply("MSG WARN REJECT ARM expired - send ARM again\r\n"); return;
     }
     /* 手動解析 FIRE 後的數字（避開 sscanf 連結成本）*/
     const char *p = line + 4;
     while (*p == ' ') p++;
     uint32_t code = 0; int ndig = 0;
     while (*p >= '0' && *p <= '9') { code = code * 10u + (uint32_t)(*p - '0'); p++; ndig++; }
-    if (ndig == 0)               { reply("[REJECT] need 'FIRE <code>'.\r\n"); return; }
-    if (code != manual_arm_code)  { reply("[REJECT] wrong code.\r\n"); return; }
+    if (ndig == 0)               { reply("MSG WARN REJECT need FIRE <code>\r\n"); return; }
+    if (code != manual_arm_code)  { reply("MSG WARN REJECT wrong code\r\n"); return; }
     if (flight_state == FLIGHT_DEPLOYING || flight_state == FLIGHT_DEPLOYED) {
-      manual_armed = 0; reply("[REJECT] already deployed.\r\n"); return;
+      manual_armed = 0; reply("MSG WARN REJECT already deployed\r\n"); return;
     }
     /* 300s 長窗可能蓋到落地後——墜毀殘骸上點火比不點更危險，擋掉 */
     if (flight_state == FLIGHT_LANDED) {
-      manual_armed = 0; reply("[REJECT] already landed.\r\n"); return;
+      manual_armed = 0; reply("MSG WARN REJECT already landed\r\n"); return;
     }
     /* ── 全數通過：點火（走自動開傘同一 DEPLOYING 路徑）── */
     manual_armed   = 0;
     deploy_time_ms = HAL_GetTick();
     flight_state   = FLIGHT_DEPLOYING;
     HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
-    reply("*** MANUAL DEPLOY FIRED ***\r\n");
+    reply("MSG SUCCESS Parachute deployed successfully\r\n");
     return;
   }
   /* 其他行忽略 */
@@ -844,14 +847,19 @@ int main(void)
         flight_state   = FLIGHT_DEPLOYING;
         HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
         if (deploy_main) {
-          /* 觸發訊息含診斷數據，便於事後分析 */
-          char msg[80];
+          /* 觸發訊息含診斷數據，便於事後分析。同步下傳 MSG 事件
+           * （地面站規範格式）——自動開傘是最關鍵事件，先前只上 USB、
+           * 地面只能從 ST 欄位變化推斷。LoRa_SendStr 阻塞最壞 ~650ms，
+           * 此刻點火已發生、決策已完成，可接受。 */
+          char msg[96];
           snprintf(msg, sizeof(msg),
-            "*** DEPLOY(A+B) pk=%.1fm now=%.1fm vz=%.2fm/s ***\r\n",
+            "MSG SUCCESS Parachute deployed (auto A+B pk=%.1fm now=%.1fm vz=%.2fm/s)\r\n",
             peak_rel_alt, rel_alt, kf2_v);
           cdc_write(msg);
+          if (mod.lora) LoRa_SendStr(msg);
         } else {
-          cdc_write("*** DEPLOY(BACKUP T>20s)! ***\r\n");
+          cdc_write("MSG SUCCESS Parachute deployed (backup timer T>20s)\r\n");
+          if (mod.lora) LoRa_SendStr("MSG SUCCESS Parachute deployed (backup timer T>20s)\r\n");
         }
       }
     }
