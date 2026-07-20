@@ -32,14 +32,21 @@ extern UART_HandleTypeDef huart1;
 #define LORA_RXBUF_SIZE     256U   /* 必須為 2 的次方 */
 #define LORA_RXBUF_MASK     (LORA_RXBUF_SIZE - 1U)
 
-/* ── E22 AUX 狀態腳（rocket_v7：PB9，HIGH=閒置可送、LOW=忙）──────────
- * 啟用前提：PB9 已在 CubeMX 設為 GPIO_Input（否則讀到的是輸出暫存器=錯）。
- * 取消下行註解即啟用「送前確認 E22 閒置」，避免灌爆 E22 內部緩衝。      */
-//#define LORA_USE_AUX
+/* ── E22 AUX 狀態腳（PB9，HIGH=閒置可送、LOW=忙/不存在）──────────────
+ * 2026-07-20 啟用：netlist（Netlist_Schematic1_2026-06-26.tel）證實接線
+ * LORA.5(AUX) → STM32.17 = PB9。解「LoRa 假存活」——透傳模式下 UART TX
+ * 單向推，沒裝模組也 mod.lora=1、LTX 100% 假成功；AUX 是唯一能證明
+ * E22 活著的訊號（上電自檢完成後拉 HIGH）。
+ * PB9 由 LoRa_Init 就地設 input+PULL-DOWN（不依賴 .ioc）：
+ *  - 模組不在/沒電 → pulldown 讀 LOW → init 500ms 逾時 → mod.lora=0（誠實）
+ *  - 模組在 → AUX 推挽 HIGH 壓得過內部 ~40k pulldown → 正常
+ * ⚠ 勿改 PULL-UP：浮空讀 HIGH＝假存活重演。 */
+#define LORA_USE_AUX
 #ifdef LORA_USE_AUX
-/* 用 CubeMX label「LORA_AUX」(PB9)，前提 PB9 已設 GPIO_Input（建議 Pull-up）*/
+#define LORA_AUX_PORT  GPIOB
+#define LORA_AUX_PIN   GPIO_PIN_9
 static inline uint8_t lora_aux_idle(void)
-{ return (HAL_GPIO_ReadPin(LORA_AUX_GPIO_Port, LORA_AUX_Pin) == GPIO_PIN_SET); }
+{ return (HAL_GPIO_ReadPin(LORA_AUX_PORT, LORA_AUX_PIN) == GPIO_PIN_SET); }
 #else
 static inline uint8_t lora_aux_idle(void) { return 1; }  /* 未啟用：永遠視為閒置 */
 #endif
@@ -63,6 +70,17 @@ int LoRa_Init(void)
     HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_RESET);
     HAL_Delay(10);   /* 等 E22 進入模式 */
+#endif
+#ifdef LORA_USE_AUX
+    /* PB9 就地 init 為 input+pulldown（不依賴 .ioc，同 LED 的做法）*/
+    {
+        GPIO_InitTypeDef gi = {0};
+        __HAL_RCC_GPIOB_CLK_ENABLE();
+        gi.Pin  = LORA_AUX_PIN;
+        gi.Mode = GPIO_MODE_INPUT;
+        gi.Pull = GPIO_PULLDOWN;
+        HAL_GPIO_Init(LORA_AUX_PORT, &gi);
+    }
 #endif
     tx_busy = 0;
     rx_head = rx_tail = 0;
@@ -139,17 +157,30 @@ int LoRa_StartRx(void)
 
 int LoRa_Receive(uint8_t *buf, uint8_t max_len)
 {
+    /* ★2026-07-20 重寫：舊版沒湊滿一行就 return 0，但 rx_tail 已前進＝
+     * 已讀字元直接丟失、下次從零開始。9600 baud 每字元隔 ~1ms 到、主迴圈
+     * 每幾百 µs poll 一次 → "ARM\r\n" 被逐字吃掉丟棄，最後 '\n' 交出空行
+     * → 上行命令 100% 失效（首次外場 ARM 實測炸出）。
+     * 修法：部分行累積在 static buffer 跨呼叫保留，收齊 '\n' 才交行。 */
+    static uint8_t  line_acc[96];   /* 部分行累積（跨呼叫保留）*/
+    static uint16_t acc_len = 0;
+
     if (!buf || max_len == 0) return -1;
-    uint16_t idx = 0;
-    /* 從 ring buffer 取到 '\n' 為止 */
-    while (rx_tail != rx_head && idx < (uint16_t)(max_len - 1)) {
+    while (rx_tail != rx_head) {
         uint8_t c = rx_ring[rx_tail];
         rx_tail = (uint16_t)((rx_tail + 1) & LORA_RXBUF_MASK);
-        if (c == '\n') { buf[idx] = '\0'; return (int)idx; }   /* 取得完整一行 */
-        if (c != '\r') buf[idx++] = c;
+        if (c == '\n') {                       /* 完整一行 → 交出並清累積 */
+            uint16_t n = acc_len;
+            if (n > (uint16_t)(max_len - 1)) n = (uint16_t)(max_len - 1);
+            memcpy(buf, line_acc, n);
+            buf[n] = '\0';
+            acc_len = 0;
+            return (int)n;                     /* 空行回 0，呼叫端 >0 檢查自然忽略 */
+        }
+        if (c != '\r' && acc_len < sizeof(line_acc) - 1)
+            line_acc[acc_len++] = c;           /* 超長（雜訊流）：丟尾保頭，等 '\n' 收行 */
     }
-    buf[idx] = '\0';
-    return 0;   /* 尚無完整一行（資料留在 ring buffer 等下次）*/
+    return 0;   /* 尚無完整一行（部分行暫存於 line_acc，真的有留）*/
 }
 
 /* ══════════════════════════════════════════════════════

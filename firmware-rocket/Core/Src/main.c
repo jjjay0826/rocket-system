@@ -49,7 +49,11 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
  * ★若降落傘電火頭改插 7V_OUT1（PA0 雙路冗餘），把這兩行改成 FIRE_7V_1_* 即可 */
 #define DEPLOY_PORT     FIRE_7V_2_GPIO_Port
 #define DEPLOY_PIN      FIRE_7V_2_Pin
-#define LAUNCH_AZ_G  1.3f       /* 離架偵測合加速度閾值 (g) */
+#define LAUNCH_AZ_G  2.5f       /* 離架偵測合加速度閾值 (g)。1.3→2.5 (2026-07-20)：
+                                 * OpenRocket 模擬推力段峰值 6g、2.5g 約 t+1.7s 達成
+                                 * （比 1.3g 僅晚 ~0.35s，20s 備援起點幾乎不動）；
+                                 * 1.3g 地面搬運甩動就可能連續 200ms 超標＝誤判離架
+                                 * →20s 後備援點火（無 arming 下極危險），2.5g 甩不出來 */
 #define DEPLOY_PULSE_MS  2000UL   /* GPIO HIGH 持續時間 ms */
 /* ---- 開傘觸發條件（改這裡調整） ----
  * 邏輯：(A AND B) OR C
@@ -409,16 +413,38 @@ static float kf_update(float meas)
 static volatile uint8_t manual_armed   = 0;
 static uint32_t         manual_arm_code = 0;
 static uint32_t         manual_arm_time = 0;
-#define MANUAL_ARM_TIMEOUT_MS  10000UL
+/* ── ARM 逾時採狀態感知（2026-07-20：緊急開傘時效 vs 誤觸防護的折衷）──
+ * 地面(IDLE) 30s：發射倒數時 ARM 備妥，容忍短暫 hold；
+ * 飛行中 300s：ARM 存活整段飛行 → 緊急時「單發 FIRE <碼>」即開傘（~1-2s），
+ * 不必在下墜的 10 秒裡跑完兩步。動態碼驗證完整保留——同頻他隊/雜訊發的
+ * FIRE 沒有碼，照樣被拒。威脅模型：逾時防的是「操作員 ARM 後分心殘留」，
+ * 飛行中 armed 待命正是備援要的狀態，放長是特性不是漏洞。 */
+#define MANUAL_ARM_TIMEOUT_IDLE_MS    30000UL
+#define MANUAL_ARM_TIMEOUT_FLIGHT_MS 300000UL
+static uint32_t manual_arm_timeout(void)
+{
+  return (flight_state == FLIGHT_IDLE) ? MANUAL_ARM_TIMEOUT_IDLE_MS
+                                       : MANUAL_ARM_TIMEOUT_FLIGHT_MS;
+}
 
 /* LoRa 回覆包裝：LoRa_SendStr 回傳 int，包成 reply 回呼要的 void(const char*) */
 static void lora_cmd_reply(const char *s) { (void)LoRa_SendStr(s); }
 
-/* 主迴圈每輪呼叫：ARM 逾時自動解除，縮小誤觸窗口 */
+/* 氣囊發火（FIRE_7V_1/PA0/7V_OUT1）脈衝狀態：獨立於開傘狀態機——
+ * 氣囊不改 flight_state，2s 脈衝由 Poll 收尾（與 DEPLOY_PULSE_MS 同長，
+ * 氣囊硬體若需不同脈寬改這裡）。 */
+static volatile uint8_t abg_active  = 0;
+static uint32_t         abg_fire_ms = 0;
+
+/* 主迴圈每輪呼叫：ARM 逾時自動解除，縮小誤觸窗口；氣囊脈衝收尾 */
 void ManualDeploy_Poll(void)
 {
-  if (manual_armed && (HAL_GetTick() - manual_arm_time) > MANUAL_ARM_TIMEOUT_MS)
+  if (manual_armed && (HAL_GetTick() - manual_arm_time) > manual_arm_timeout())
     manual_armed = 0;
+  if (abg_active && (HAL_GetTick() - abg_fire_ms) >= DEPLOY_PULSE_MS) {
+    HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_RESET);
+    abg_active = 0;
+  }
 }
 
 /* 處理一行命令（ARM / FIRE <碼> / SAFE）。回覆經 reply 回呼送回來源通道
@@ -434,8 +460,9 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     manual_arm_time = HAL_GetTick();
     manual_armed    = 1;
     snprintf(rb, sizeof(rb),
-      "MANUAL ARMED. Reply 'FIRE %04lu' within 10s ('SAFE' aborts).\r\n",
-      (unsigned long)manual_arm_code);
+      "MANUAL ARMED. Reply 'FIRE %04lu' within %lus ('SAFE' aborts).\r\n",
+      (unsigned long)manual_arm_code,
+      (unsigned long)(manual_arm_timeout() / 1000UL));
     reply(rb);
     return;
   }
@@ -444,9 +471,55 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     reply("MANUAL SAFE (disarmed).\r\n");
     return;
   }
+  /* ── 遠端緊急命令（2026-07-20，對接 rocket_side_requirements.md）────
+   * 地面站打 dpl/abg → 自動下傳隊伍秘鑰字串、burst 4 次×50ms（半雙工避障，
+   * 重複命中由下方 already-* 檢查吸收）。單發單向設計論證見 git 歷史
+   * （兩段式=3 段 RF 串聯，緊急時失效率翻倍；明文口令用過即被竊聽）。
+   * 閘門（比 .md 的 boottime 10s 閘更嚴）：
+   *  - IDLE：需 ARM 中（30s 窗）＝桌測解鎖路徑「ARM → dpl」；未 armed 一律
+   *    拒收 → 發射台誤觸/他隊（字串在 public repo）最壞情境免疫。
+   *    發射倒數不必 ARM——飛行中本來就免 ARM 單發。
+   *  - 飛行：LAUNCHED+10s 後受理（上升段誤開傘=解體，擋掉；burnout 5.9s、
+   *    apogee 16.6s，最早也要 apogee 後才需要）。
+   *  - 開傘另擋 DEPLOYING/DEPLOYED/LANDED；氣囊允許 DEPLOYING/DEPLOYED
+   *    （下降段正是充氣緩衝的使用時機）、擋 LANDED。 */
+  {
+    uint8_t is_dpl = (strcmp(line, "#CMD:FORCE_DPL_SALT9981#") == 0);
+    uint8_t is_abg = (strcmp(line, "#CMD:OPEN_ABG_SALT8872#") == 0);
+    if (is_dpl || is_abg) {
+      if (flight_state == FLIGHT_IDLE && !manual_armed) {
+        reply("[REJECT] IDLE & not armed - send ARM first (bench unlock).\r\n");
+        return;
+      }
+      if (flight_state != FLIGHT_IDLE
+          && (HAL_GetTick() - launch_time_ms) < 10000UL) {
+        reply("[REJECT] ascent guard (<10s after launch).\r\n"); return;
+      }
+      if (flight_state == FLIGHT_LANDED) {
+        reply("[REJECT] already landed.\r\n"); return;
+      }
+      if (is_dpl) {
+        if (flight_state == FLIGHT_DEPLOYING || flight_state == FLIGHT_DEPLOYED) {
+          reply("[REJECT] already deployed.\r\n"); return;
+        }
+        manual_armed   = 0;
+        deploy_time_ms = HAL_GetTick();
+        flight_state   = FLIGHT_DEPLOYING;      /* 走自動開傘同一 2s 脈衝收尾 */
+        HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
+        reply("ACK:FORCE_DPL:SUCCESS\r\n");
+      } else {
+        if (abg_active) { reply("ACK:OPEN_ABG:ALREADY\r\n"); return; }
+        abg_active  = 1;                        /* 收尾在 ManualDeploy_Poll */
+        abg_fire_ms = HAL_GetTick();
+        HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_SET);
+        reply("ACK:OPEN_ABG:SUCCESS\r\n");
+      }
+      return;
+    }
+  }
   if (strncmp(line, "FIRE", 4) == 0) {
     if (!manual_armed) { reply("[REJECT] not armed - send ARM first.\r\n"); return; }
-    if ((HAL_GetTick() - manual_arm_time) > MANUAL_ARM_TIMEOUT_MS) {
+    if ((HAL_GetTick() - manual_arm_time) > manual_arm_timeout()) {
       manual_armed = 0; reply("[REJECT] ARM expired - send ARM again.\r\n"); return;
     }
     /* 手動解析 FIRE 後的數字（避開 sscanf 連結成本）*/
@@ -458,6 +531,10 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     if (code != manual_arm_code)  { reply("[REJECT] wrong code.\r\n"); return; }
     if (flight_state == FLIGHT_DEPLOYING || flight_state == FLIGHT_DEPLOYED) {
       manual_armed = 0; reply("[REJECT] already deployed.\r\n"); return;
+    }
+    /* 300s 長窗可能蓋到落地後——墜毀殘骸上點火比不點更危險，擋掉 */
+    if (flight_state == FLIGHT_LANDED) {
+      manual_armed = 0; reply("[REJECT] already landed.\r\n"); return;
     }
     /* ── 全數通過：點火（走自動開傘同一 DEPLOYING 路徑）── */
     manual_armed   = 0;
@@ -784,7 +861,15 @@ int main(void)
     if (mod.lora) {
       static uint8_t lrx[80];
       int lr = LoRa_Receive(lrx, (uint8_t)sizeof(lrx));
-      if (lr > 0) ManualDeploy_HandleLine((char *)lrx, lora_cmd_reply);
+      if (lr > 0) {
+        /* 上行內容 echo 到 USB：火箭端 COM 直接看得到收到什麼（2026-07-20
+         * 首次 ARM 實測「全聾無回應」後加的診斷窗口——沒有它，上行鏈路
+         * 斷在哪一層完全不可觀察）。火箭 RX 平時無流量，不會洗版。 */
+        char lora_rx_dbg[100];
+        snprintf(lora_rx_dbg, sizeof(lora_rx_dbg), "LORA RX: %s\r\n", (char *)lrx);
+        cdc_write(lora_rx_dbg);
+        ManualDeploy_HandleLine((char *)lrx, lora_cmd_reply);
+      }
     }
 
     /* ─── SD 卡延遲初始化（啟動後 3 秒；失敗每 3s 自動重試，最多 5 次）───
@@ -813,8 +898,13 @@ int main(void)
       }
     }
 
-    /* ─── SD 卡動態重試與熱插拔恢復機制 ─── */
-    if (sd_init_done && !logger_is_ready()) {
+    /* ─── SD 卡動態重試與熱插拔恢復機制 ───
+     * ⚠ LAUNCHED/DEPLOYING 期間跳過：logger_init 是阻塞式（半死卡下
+     * ACMD41 預算 1s＋深度救援 ~1.1s），會在開傘決策窗口打出秒級空窗。
+     * 上升段 SD 掉了就掉了，DEPLOYED（傘已開）之後才恢復記錄。 */
+    if (sd_init_done && !logger_is_ready()
+        && flight_state != FLIGHT_LAUNCHED
+        && flight_state != FLIGHT_DEPLOYING) {
       static uint32_t sd_reinit_t = 0;
       if (now - sd_reinit_t >= 5000UL) {
         sd_reinit_t = now;
@@ -822,8 +912,35 @@ int main(void)
         if (logger_is_ready()) {
           mod.sdcard = 1;
           cdc_write("SD: OK (RECOVERED)\r\n");
+        } else {
+          /* 失敗也要出聲：拔卡實測時「全程靜默」被誤判成救援沒在跑。
+           * fres 定位 FatFS 層死點（3=NOT_READY→disk_init 敗、13=NO_FILESYSTEM、
+           * 4=NO_FILE…）；cmd0/cmd8 定位 SPI 層死點（01=有回應、FF=沒回）。
+           * 實測 2026-07-20：熱插回卡 cmd0=01 但 init 快速失敗＝死在 CMD8 之後，
+           * 需要這組完整參數分案。 */
+          extern volatile uint8_t SD_dbg_cmd0, SD_dbg_cmd8;
+          extern FRESULT fres;
+          char e[64];
+          snprintf(e, sizeof(e), "SD: REINIT FAIL (fres=%d cmd0=%02X cmd8=%02X) retry 5s\r\n",
+                   (int)fres, (unsigned)SD_dbg_cmd0, (unsigned)SD_dbg_cmd8);
+          cdc_write(e);
         }
       }
+    }
+
+    /* ─── SD 預算水位自動滾檔（IDLE 限定，＝自動 CLEAR、資料不丟失）───
+     * IDLE 2Hz 也在啃預分配預算（~1.2MB/h），待機夠久會把飛行段
+     * 「零 sync＋無配置 GC」的前提吃光。吃過半 → 自動 trunc→close→init
+     * 滾新檔＋重配滿血預算；舊檔收斂保留、新檔標頭由 file_gen 機制補寫。
+     * 「靜止」門檻擋住唯一風險：init 阻塞（~0.5-1s）撞上點火瞬間——
+     * 只在 |g-1|<0.05 時執行，起飛加速一開始就不會觸發。 */
+    if (flight_state == FLIGHT_IDLE && logger_is_ready()
+        && f_tell(&file) >= (LOG_PREALLOC_BYTES / 2U)
+        && fabsf(total_g - 1.0f) < 0.05f) {
+      cdc_write("SD: AUTO-ROLL (budget refill)\r\n");
+      logger_trunc();
+      logger_close();
+      logger_init();
     }
 
     /* ─── IMU 每 10ms ─── */
@@ -1202,7 +1319,9 @@ int main(void)
       if (cn > 0 && cn < (int)sizeof(csv)) {
         UINT bw_sd = 0;
         FRESULT fw = f_write(&file, csv, (UINT)cn, &bw_sd);
+        static uint8_t csv_reopen_fails = 0;   /* reopen 循環斷路器計數 */
         if (fw == FR_OK && bw_sd == (UINT)cn) {
+          csv_reopen_fails = 0;                /* 真正寫成功才歸零 */
           sd_write_cnt++;
           /* ── sync 策略：只有地面/落地做顯式 sync ──
            * 飛行中(LAUNCHED/DEPLOYING/DEPLOYED)零 sync：8MB 預分配讓目錄/FAT
@@ -1235,11 +1354,22 @@ int main(void)
           }
           /* ── 復原（code-review C4）：FatFS 寫入失敗會鎖定 fp->err
            * （僅 f_open 能清），不重開則之後每筆立即失敗＝其餘飛行
-           * 全部靜默丟失。節流 2s：重開＋seek 回原寫入位置。      */
+           * 全部靜默丟失。節流 2s：重開＋seek 回原寫入位置。
+           * ── 斷路器（2026-07-20 室外實測）：卡半死時 reopen 會「假成功」
+           * （f_open 吃 FatFS 快取回 OK，實際 I/O 全掛）→ 寫失敗↔reopen
+           * 無限循環，永遠輪不到完整 remount。連續 3 輪（~6s）沒有任何
+           * 一筆寫成功 → 強制標記失效，交給熱插拔恢復做 SD_disk_deinit
+           * ＋f_mount 全套（含深度救援 sd_unstick_card）。          */
           static uint32_t csv_reopen_t = 0;
           if (now - csv_reopen_t >= 2000UL) {
             csv_reopen_t = now;
-            if (logger_reopen() == 0) cdc_write("SD: REOPEN OK\r\n");
+            if (++csv_reopen_fails >= 3) {
+              csv_reopen_fails = 0;
+              logger_mark_failed();
+              cdc_write("SD: REOPEN LOOP -> FULL REINIT\r\n");
+            } else if (logger_reopen() == 0) {
+              cdc_write("SD: REOPEN OK\r\n");
+            }
           }
         }
       }
@@ -1346,7 +1476,9 @@ int main(void)
       //    LoRa 傳輸中亮；LoRa 禁用或無傳輸則滅
       if (mod.lora ) {
         if(lora_disabled){
-          HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_SET);   /* 亮 */      
+          /* doc(interactive_features.md §3)：disable=恆滅。舊碼寫成恆亮
+           * 與規格相反（2026-07-20 使用者對板實測抓到），改回對齊 doc */
+          HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_RESET); /* 滅 */
         } else if(lora_tx_pending){
           HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_SET);   /* 亮 */
         } else {

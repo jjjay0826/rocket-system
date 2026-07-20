@@ -101,9 +101,9 @@ void logger_init(void) {
      * 飛行中寫入資料全部落在已分配區域，FAT 無需更新 → GC 不觸發。
      * f_sync 只在地面初始化執行一次，飛行中不再有 GC 風險。
      *
-     * 容量估算（每行 ≈280B，500ms 輸出一行）：
-     *   4 小時全速  = 4×3600×2×280 = 8,064,000 B ≈ 7.7 MB  → 8MB 足夠
-     *   落地後 5s 間隔，後半段消耗大幅降低
+     * 容量估算（實測每行 ~160B）：
+     *   IDLE 2Hz ≈ 1.2MB/h、飛行 50Hz ≈ 0.5MB/min → 16MB ≈ 待機 13h 或
+     *   飛行 32min；另有 IDLE 過半自動滾檔（main.c）確保起飛時預算充足
      * ──────────────────────────────────────────────────────────────*/
     /* LOG_PREALLOC_BYTES 已移至 logger.h（main.c 的 sync 政策需要它）*/
     {
@@ -145,6 +145,14 @@ int logger_reopen(void) {
 }
 
 uint8_t logger_is_ready(void) { return sd_ok; }
+
+/* reopen 循環斷路器用（main.c）：把 file handle 收掉並標記失效。
+ * f_close 在卡死時可能失敗——無所謂，目的只是不留半開的 handle。*/
+void logger_mark_failed(void)
+{
+    f_close(&file);
+    sd_ok = 0;
+}
 
 void logger_write(const char *data) {
     char line[128];

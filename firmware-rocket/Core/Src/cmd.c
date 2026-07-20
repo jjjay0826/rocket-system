@@ -244,6 +244,7 @@ static void process_command_exec(const char *cmd)
       HAL_Delay(1000);
     }
     cmd_out("PINTEST done -> reboot to restore SPI2\r\n");
+    if (logger_is_ready()) logger_close();   /* reset 打斷寫入會把卡鎖死（需斷電才復活）*/
     HAL_Delay(200);
     NVIC_SystemReset();
   }
@@ -303,6 +304,7 @@ static void process_command_exec(const char *cmd)
     }
 
     cmd_out("PINHOLD done -> reboot\r\n");
+    if (logger_is_ready()) logger_close();   /* 同 PINTEST：防 reset 打斷寫入鎖死卡 */
     HAL_Delay(200);
     NVIC_SystemReset();
   }

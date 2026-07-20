@@ -171,6 +171,42 @@ static BYTE send_cmd(BYTE cmd, DWORD arg)
     return res;
 }
 
+/* ── 深度救援：解開「寫入中被 reset/斷觸打斷」後鎖死的卡 ──────────────
+ * 情境（2026-07-20 室外實測）：CSV 寫入中按 reset → 卡沒斷電、內部狀態機
+ * 停在半途 → 重開機後 CMD0 輕量重試 5 次全敗，直到整機斷電才復活。
+ * 卡可能停在三種狀態，逐一對症：
+ *  (a) CMD25 等資料 token → 送停止 token 0xFD，讓卡結束多塊寫入
+ *  (b) CMD18 連續讀     → CMD12 (STOP_TRANSMISSION) 中止
+ *  (c) program busy（DO 拉低）→ wait_ready 長等，讓卡把中斷的寫入做完
+ * 全程低速時脈（呼叫端已 FCLK_SLOW）。耗時上限 ~1.1s，只在輕量重試
+ * 三連敗後執行一次。※ 斷電重開仍最可靠，本序列是把「按 reset 就能救回」
+ * 的機率拉高，不是保證。 */
+static void sd_unstick_card(void)
+{
+    /* 1. CS_HIGH 送 4096 時脈：若卡在等資料，把殘留的半個資料框沖掉 */
+    CS_HIGH();
+    for (int i = 0; i < 512; i++) xchg_spi(0xFF);
+
+    /* 2. 停止 token 0xFD：卡若在 CMD25 等 token，收到後開始收尾（進 busy）*/
+    CS_LOW();
+    for (volatile int i = 0; i < 500; i++) __NOP();   /* 電平穩定延遲 */
+    xchg_spi(0xFD);
+    xchg_spi(0xFF);
+
+    /* 3. CMD12：卡若在 CMD18 連續讀，中止它（在寫入狀態下卡會忽略，無害）*/
+    xchg_spi(0x40 | CMD12);
+    xchg_spi(0); xchg_spi(0); xchg_spi(0); xchg_spi(0);
+    xchg_spi(0x01);                        /* dummy CRC */
+    xchg_spi(0xFF);                        /* CMD12 stuff byte */
+    for (int i = 0; i < 10; i++) xchg_spi(0xFF);   /* 丟棄回應 */
+
+    /* 4. 等卡把被打斷的 program 寫完（NAND page program 最長可到數百 ms）*/
+    wait_ready(500);
+
+    deselect();
+    HAL_Delay(10);
+}
+
 /* ══════════ diskio 介面 ══════════ */
 DSTATUS SD_disk_status(BYTE pdrv)
 {
@@ -195,9 +231,14 @@ DSTATUS SD_disk_initialize(BYTE pdrv)
      *      拉低後直接送 frame + 讀 R1，繞過 wait_ready。
      *  (2) 只按 reset（卡沒斷電）時，卡可能還停在上次 busy/寫入狀態，單次 CMD0
      *      會失敗（就是偶爾看到的 MOD=1110）。故重試 3 次，每次先多送喚醒時脈
-     *      + 短延遲，給卡時間回 idle。※ 斷電重開仍最可靠，重試只是提高機率。
+     *      + 短延遲，給卡時間回 idle。
+     *  (3) 三連敗 → 深度救援一次再給兩次機會（見 sd_unstick_card）：
+     *      實測 2026-07-20 室外，reset 後 5 次 init 全敗、直到斷電才復活＝
+     *      卡停在被打斷的寫入狀態，輕量重試永遠救不回。
      * 判讀：cmd0=01 → 進 idle 成功；cmd0=FF/00 → 卡沒回（查硬體 / 或斷電重開）。*/
-    for (int attempt = 0; attempt < 3; attempt++) {
+    for (int attempt = 0; attempt < 5; attempt++) {
+        if (attempt == 3) sd_unstick_card();   /* 前 3 次輕量重試沒過 → 深度救援 */
+
         CS_HIGH();
         for (n = 20; n; n--) xchg_spi(0xFF);   /* 160 時脈：喚醒 + 沖掉上次殘留 */
         HAL_Delay(2);                          /* 給卡時間結束上次 busy */
