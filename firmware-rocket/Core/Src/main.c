@@ -436,7 +436,12 @@ static void lora_cmd_reply(const char *s) { (void)LoRa_SendStr(s); }
 static volatile uint8_t abg_active  = 0;
 static uint32_t         abg_fire_ms = 0;
 
-/* 主迴圈每輪呼叫：ARM 逾時自動解除，縮小誤觸窗口；氣囊脈衝收尾 */
+/* 桌測連續點火（TEST_FIRE）脈衝狀態：同樣不動 flight_state 的裸脈衝
+ * （PA1），測完免 reset 可立即再點。僅 IDLE+ARM 中受理。 */
+static volatile uint8_t test_fire_active = 0;
+static uint32_t         test_fire_ms     = 0;
+
+/* 主迴圈每輪呼叫：ARM 逾時自動解除，縮小誤觸窗口；獨立脈衝收尾 */
 void ManualDeploy_Poll(void)
 {
   if (manual_armed && (HAL_GetTick() - manual_arm_time) > manual_arm_timeout())
@@ -444,6 +449,10 @@ void ManualDeploy_Poll(void)
   if (abg_active && (HAL_GetTick() - abg_fire_ms) >= DEPLOY_PULSE_MS) {
     HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_RESET);
     abg_active = 0;
+  }
+  if (test_fire_active && (HAL_GetTick() - test_fire_ms) >= DEPLOY_PULSE_MS) {
+    HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_RESET);
+    test_fire_active = 0;
   }
 }
 
@@ -486,6 +495,23 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
   {
     uint8_t is_dpl = (strcmp(line, "#CMD:FORCE_DPL_SALT9981#") == 0);
     uint8_t is_abg = (strcmp(line, "#CMD:OPEN_ABG_SALT8872#") == 0);
+    /* ── 桌測連續點火：裸脈衝（PA1）不動 flight_state，測完免 reset ──
+     * 閘：IDLE＋ARM 中限定（30s 窗內想點幾次點幾次，過期重 ARM 即可；
+     * 飛行中不受理——飛行點火走 dpl 正路）。不清 manual_armed＝連測體驗。*/
+    if (strcmp(line, "#CMD:TEST_FIRE_SALT7777#") == 0) {
+      if (flight_state != FLIGHT_IDLE) {
+        reply("[REJECT] TEST_FIRE is bench-only (IDLE).\r\n"); return;
+      }
+      if (!manual_armed) {
+        reply("[REJECT] not armed - send ARM first.\r\n"); return;
+      }
+      if (test_fire_active) { reply("ACK:TEST_FIRE:ALREADY\r\n"); return; }
+      test_fire_active = 1;
+      test_fire_ms     = HAL_GetTick();
+      HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
+      reply("ACK:TEST_FIRE:SUCCESS\r\n");
+      return;
+    }
     /* #CMD: 開頭但比對不中＝打錯字/字串版本不符——回饋而非死寂
      * （桌測手打 24 字元一字錯就全滅，沒回饋根本不知道錯在自己）*/
     if (!is_dpl && !is_abg && strncmp(line, "#CMD:", 5) == 0) {
