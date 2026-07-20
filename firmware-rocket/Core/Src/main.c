@@ -66,11 +66,13 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
 #define DEPLOY_VZ_NEG_THR  -0.5f    /* B: kf2_v 低於此值視為「持續向下」(m/s) */
 #define DEPLOY_VZ_NEG_MS   1500UL   /* B: 速度向下持續門檻 (ms) */
 #define DEPLOY_TB_MS       18000UL  /* C: 備援強制觸發時間 (ms)。20s→18s (2026-07-20
-                                     * 定案)：Pioneer-5K 實測曲線 ±10% 全包絡模擬
-                                     * apogee=16.1~17.95s（風況效應<0.1s 已除名）→
-                                     * 備援點火 ≈LAUNCHED(1.9s)+18=19.9s＝最晚 apogee
-                                     * +1.9s（防上升中點火 margin）、最早 apogee+3.8s
-                                     * （備援開傘 ~35m/s，vs 舊 20s 的 48m/s）。 */
+                                     * 定案，逐狀態驗證過)：Pioneer-5K 實測曲線 ±10%
+                                     * 包絡模擬 apogee=16.1~17.95s（風況<0.1s 除名）；
+                                     * LAUNCHED 判定實測 ≈1.3s（2.5g+200ms，曲線爬升陡）
+                                     * → C 點火 ≈19.3s＝最晚 apogee+1.34s（防上升中點火）
+                                     * ＝最早 apogee+3.2s（21.7m/s）。+10% 端 C 比主路徑
+                                     * A∧B 早 0.2s 以 12m/s 開傘（良性交叉保護）；兩端
+                                     * 實際開傘速度皆 ≤14m/s。 */
 #define IMU_ARM_G       1.5f      /* IMU 積分啟動閾值 (g)，測試用可調低 */
 #define MAH_2KP         1.0f      /* Mahony 比例增益 × 2 */
 #define MAH_2KI         0.01f     /* Mahony 積分增益 × 2 */
