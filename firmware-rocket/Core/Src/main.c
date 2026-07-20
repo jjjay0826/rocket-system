@@ -436,10 +436,22 @@ static void lora_cmd_reply(const char *s) { (void)LoRa_SendStr(s); }
 static volatile uint8_t abg_active  = 0;
 static uint32_t         abg_fire_ms = 0;
 
-/* 桌測連續點火（TEST_FIRE）脈衝狀態：同樣不動 flight_state 的裸脈衝
- * （PA1），測完免 reset 可立即再點。僅 IDLE+ARM 中受理。 */
-static volatile uint8_t test_fire_active = 0;
-static uint32_t         test_fire_ms     = 0;
+/* ═══════════════════════════════════════════════════════════════════════
+ * ★★★ 桌測解禁開關（2026-07-20 使用者要求）★★★
+ * 定義時：dpl/abg 跳過全部閘門（IDLE ARM 解鎖、上升 10s、already
+ * deployed/landed），且 dpl 改走「裸脈衝」（不動 flight_state）＝正式 key
+ * 可無限重複點火。TEST_FIRE 命令已移除，測試直接用正式 key。
+ * ★ 復原＝把下面這行註解掉重編譯（#warning 會在每次編譯提醒；開機
+ *   訊息也會廣播 UNRESTRICTED 警示，防止帶著解禁版上天）。
+ * ═══════════════════════════════════════════════════════════════════════ */
+#define REMOTE_CMD_UNRESTRICTED
+#ifdef REMOTE_CMD_UNRESTRICTED
+#warning "REMOTE_CMD_UNRESTRICTED is ACTIVE - dpl/abg have NO safety gates. NOT FLIGHT SAFE."
+#endif
+
+/* dpl 裸脈衝狀態（解禁模式用）：不動 flight_state，2s 由 Poll 收尾 */
+static volatile uint8_t dpl_pulse_active = 0;
+static uint32_t         dpl_pulse_ms     = 0;
 
 /* 主迴圈每輪呼叫：ARM 逾時自動解除，縮小誤觸窗口；獨立脈衝收尾 */
 void ManualDeploy_Poll(void)
@@ -450,9 +462,9 @@ void ManualDeploy_Poll(void)
     HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_RESET);
     abg_active = 0;
   }
-  if (test_fire_active && (HAL_GetTick() - test_fire_ms) >= DEPLOY_PULSE_MS) {
+  if (dpl_pulse_active && (HAL_GetTick() - dpl_pulse_ms) >= DEPLOY_PULSE_MS) {
     HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_RESET);
-    test_fire_active = 0;
+    dpl_pulse_active = 0;
   }
 }
 
@@ -497,24 +509,6 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
   {
     uint8_t is_dpl = (strcmp(line, "#CMD:FORCE_DPL_SALT9981#") == 0);
     uint8_t is_abg = (strcmp(line, "#CMD:OPEN_ABG_SALT8872#") == 0);
-    /* ── 桌測連續點火：裸脈衝（PA1）不動 flight_state，測完免 reset ──
-     * 閘：ARM 中＋非上升/開傘中（2026-07-20 放寬：dpl 桌測後狀態=DEPLOYED
-     * 也可續測——DEPLOYED/LANDED 下裸脈衝無害，電火頭已耗；LAUNCHED/
-     * DEPLOYING 仍擋）。不清 manual_armed＝30s 窗內想點幾次點幾次。 */
-    if (strcmp(line, "#CMD:TEST_FIRE_SALT7777#") == 0) {
-      if (flight_state == FLIGHT_LAUNCHED || flight_state == FLIGHT_DEPLOYING) {
-        reply("MSG WARN REJECT TEST_FIRE blocked in flight\r\n"); return;
-      }
-      if (!manual_armed) {
-        reply("MSG WARN REJECT not armed - send ARM first\r\n"); return;
-      }
-      if (test_fire_active) { reply("MSG WARN Test fire already active\r\n"); return; }
-      test_fire_active = 1;
-      test_fire_ms     = HAL_GetTick();
-      HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
-      reply("MSG SUCCESS Test fire pulse started\r\n");
-      return;
-    }
     /* #CMD: 開頭但比對不中＝打錯字/字串版本不符——回饋而非死寂
      * （桌測手打 24 字元一字錯就全滅，沒回饋根本不知道錯在自己）*/
     if (!is_dpl && !is_abg && strncmp(line, "#CMD:", 5) == 0) {
@@ -522,6 +516,8 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
       return;
     }
     if (is_dpl || is_abg) {
+#ifndef REMOTE_CMD_UNRESTRICTED
+      /* ── 正式閘門（解禁時整段跳過；復原＝關掉上方 #define）── */
       if (flight_state == FLIGHT_IDLE && !manual_armed) {
         reply("MSG WARN REJECT IDLE and not armed - ARM first (bench unlock)\r\n");
         return;
@@ -533,7 +529,16 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
       if (flight_state == FLIGHT_LANDED) {
         reply("MSG WARN REJECT already landed\r\n"); return;
       }
+#endif
       if (is_dpl) {
+#ifdef REMOTE_CMD_UNRESTRICTED
+        /* 解禁：裸脈衝（不動 flight_state）＝正式 key 可無限重複點火 */
+        if (dpl_pulse_active) { reply("MSG WARN Deploy pulse already active\r\n"); return; }
+        dpl_pulse_active = 1;
+        dpl_pulse_ms     = HAL_GetTick();
+        HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
+        reply("MSG SUCCESS Parachute deployed successfully\r\n");
+#else
         if (flight_state == FLIGHT_DEPLOYING || flight_state == FLIGHT_DEPLOYED) {
           reply("MSG WARN REJECT already deployed\r\n"); return;
         }
@@ -542,6 +547,7 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
         flight_state   = FLIGHT_DEPLOYING;      /* 走自動開傘同一 2s 脈衝收尾 */
         HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
         reply("MSG SUCCESS Parachute deployed successfully\r\n");
+#endif
       } else {
         if (abg_active) { reply("MSG WARN Airbag already firing\r\n"); return; }
         abg_active  = 1;                        /* 收尾在 ManualDeploy_Poll */
@@ -716,7 +722,14 @@ int main(void)
     cdc_write(b);
     /* PB7(SIG_1) 接地時拉低，禁用 LoRa */
     uint8_t lora_init_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
-    if (mod.lora && !lora_init_disabled) LoRa_SendStr(b); }
+    if (mod.lora && !lora_init_disabled) LoRa_SendStr(b);
+#ifdef REMOTE_CMD_UNRESTRICTED
+    /* 解禁版警示廣播：USB＋LoRa 都吼一聲，帶著這版上發射台前一定看得到 */
+    cdc_write("MSG ERROR UNRESTRICTED MODE - dpl/abg gates OFF - NOT FLIGHT SAFE\r\n");
+    if (mod.lora && !lora_init_disabled)
+      LoRa_SendStr("MSG ERROR UNRESTRICTED MODE - dpl/abg gates OFF - NOT FLIGHT SAFE\r\n");
+#endif
+  }
 
   /* ---- IMU 校準（僅在 IMU 成功初始化時執行）---- */
   if (mod.imu) {
