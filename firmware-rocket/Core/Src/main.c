@@ -65,7 +65,19 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
 #define DEPLOY_PEAK_MIN_M  20.0f    /* A: 最高點需達此高度才啟用，防地面誤觸 (m) */
 #define DEPLOY_VZ_NEG_THR  -0.5f    /* B: kf2_v 低於此值視為「持續向下」(m/s) */
 #define DEPLOY_VZ_NEG_MS   1500UL   /* B: 速度向下持續門檻 (ms) */
-#define DEPLOY_TB_MS       20000UL  /* C: 備援強制觸發時間 (ms) */
+#define DEPLOY_TB_MS       18000UL  /* C: 備援強制觸發時間 (ms)。20s→18s (2026-07-20
+                                     * 定案，逐狀態驗證過)：Pioneer-5K 實測曲線 ±10%
+                                     * 包絡模擬 apogee=16.1~17.95s（風況<0.1s 除名）；
+                                     * LAUNCHED 判定實測 ≈1.3s（2.5g+200ms，曲線爬升陡）
+                                     * → C 點火 ≈19.3s＝最晚 apogee+1.34s（防上升中點火）
+                                     * ＝最早 apogee+3.2s（21.7m/s）。+10% 端 C 比主路徑
+                                     * A∧B 早 0.2s 以 12m/s 開傘（良性交叉保護）；兩端
+                                     * 實際開傘速度皆 ≤14m/s。 */
+#define AIRBAG_IMPACT_G  5.0f     /* 落海/觸地撞擊偵測：DEPLOYED 下 total_g 超過
+                                   * 此值＝觸水/觸地減速 spike → 自動充氣氣囊。
+                                   * 下降穩定 ≈1g、傘擺盪 ≤3g；落水(終端 6.2m/s、
+                                   * 減速 ~0.3m)≈6.5g → 5.0 有 margin 又防空中擺盪
+                                   * 誤觸。實際落水/落地測試後可校。 */
 #define IMU_ARM_G       1.5f      /* IMU 積分啟動閾值 (g)，測試用可調低 */
 #define MAH_2KP         1.0f      /* Mahony 比例增益 × 2 */
 #define MAH_2KI         0.01f     /* Mahony 積分增益 × 2 */
@@ -435,6 +447,22 @@ static void lora_cmd_reply(const char *s) { (void)LoRa_SendStr(s); }
  * 氣囊與降落傘皆以此變數為準）。 */
 static volatile uint8_t abg_active  = 0;
 static uint32_t         abg_fire_ms = 0;
+
+/* 落海/觸地後自動充氣（一次性）。與遠端 abg 命令共用脈衝機制與 PA0，
+ * airbag_auto_fired 保證整趟只自動觸發一次（撞擊與 LANDED 兩個觸發點
+ * 先到先觸發，另一個被本旗標擋掉）。與遠端 abg 命令並存無害——遠端已
+ * 在充氣時 abg_active=1，本函式讓位。 */
+static uint8_t airbag_auto_fired = 0;
+static void airbag_fire_auto(void)
+{
+  if (airbag_auto_fired || abg_active) return;
+  airbag_auto_fired = 1;
+  abg_active  = 1;
+  abg_fire_ms = HAL_GetTick();
+  HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_SET);
+  cdc_write("MSG INFO Airbag inflation started (auto splashdown)\r\n");
+  if (mod.lora) LoRa_SendStr("MSG INFO Airbag inflation started (auto splashdown)\r\n");
+}
 
 /* ═══════════════════════════════════════════════════════════════════════
  * ★★★ 桌測解禁開關（2026-07-20 使用者要求）★★★
@@ -808,6 +836,15 @@ int main(void)
      * 條件：total_g 接近 1g（靜止）且 rel_alt < 30m，持續 10 秒
      * 目的：進入低功耗模式，減少 SD 寫入，保留 LoRa beacon 供尋回 */
     if (flight_state == FLIGHT_DEPLOYED) {
+      /* ── 落海後自動充氣氣囊（主觸發＝撞擊偵測）──────────────────────
+       * total_g spike > AIRBAG_IMPACT_G ＝觸水/觸地瞬間減速 → 立即充氣。
+       * ★不等 LANDED：落海後水面波浪會讓 total_g 持續晃動、「靜止 10s」
+       *   遲遲不成立甚至永不成立，純 LANDED 觸發對落海不可靠。撞擊偵測
+       *   在觸水那一刻就抓到，即時。airbag_fire_auto 自帶一次性保護。
+       * ⚠ 限制：IMU 死時 total_g 不更新→此路失效，只剩下方 LANDED 備援
+       *   （同樣依賴 total_g，故 IMU 全死時落海氣囊不保證，屬硬體風險）。*/
+      if (mod.imu && total_g > AIRBAG_IMPACT_G) airbag_fire_auto();
+
       int land_cond = (fabsf(total_g - 1.0f) < LAND_G_DEV_THR) &&
                       (rel_alt < LAND_ALT_THR);
       if (land_cond) {
@@ -821,6 +858,8 @@ int main(void)
           cdc_write(lmsg);   /* 不寫 SD：避免插入非 CSV 行（落地由 state 欄=4 標記）*/
           /* 截掉 8MB 預分配的尾端，log.csv 收斂為實際資料長度（落地在地面，GC 可接受）*/
           if (logger_is_ready()) { f_truncate(&file); f_sync(&file); }
+          /* 氣囊備援：撞擊太軟沒觸發主路徑時，進 LANDED 補充氣（一次性擋重複）*/
+          airbag_fire_auto();
         }
       } else {
         land_stable_start = 0;   /* 條件中斷（可能降落傘仍在搖擺），重置計時 */
@@ -1270,7 +1309,8 @@ int main(void)
 
       /* PB7(SIG_1) 接地時拉低，禁用 LoRa */
       uint8_t lora_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
-      if (mod.lora && !lora_disabled) {
+      /* BRIDGE 模式：靜音自身遙測，空口只留 sim_replay 轉發的資料 */
+      if (mod.lora && !lora_disabled && !cmd_bridge_active()) {
         /* TX 空閒時發送新封包（poll 已移至主迴圈頂部，每次迴圈執行）*/
         if (!LoRa_IsBusy()) {
           lora_seq++;   /* 序號遞增（接收端用來偵測掉包）*/
@@ -1429,9 +1469,11 @@ int main(void)
     }
 
     /* ─── UART/CDC 輸出：一般每 500ms；LANDED 後降頻到每 5s ───
-     * （僅遙測輸出；SD 寫入節拍由上方 t_csv 區塊獨立控制）      */
+     * （僅遙測輸出；SD 寫入節拍由上方 t_csv 區塊獨立控制）
+     * BRIDGE 模式跳過：USB 讓給 sim_replay 輸入，不再狂寫自身遙測
+     * （否則螢幕亂＋無人讀時 cdc_write 空轉吃 CPU）。 */
     uint32_t out_interval = (flight_state == FLIGHT_LANDED) ? LAND_LOG_INTERVAL : 500UL;
-    if (now - t_out >= out_interval) {
+    if (now - t_out >= out_interval && !cmd_bridge_active()) {
       t_out = now;
       /* LED_B10 toggle removed to serve as dedicated LoRa TX flicker */
 
