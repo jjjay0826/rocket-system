@@ -22,13 +22,14 @@ firmware-rocket 的下行封包格式,經第二顆 E22(USB-TTL)發射,地面站
 本腳本 --port COM20、地面站 backend 設 COM21,即可跳過 RF 直餵。
 """
 import argparse
-import math
+import math      # noqa: F401 — 座標覆寫用
 import random
 import sys
 import time
 
 # ── OpenRocket 匯出欄位 index(與本專案 sim CSV 一致)──────────────
 COL_T, COL_ALT, COL_VV, COL_VACC = 0, 1, 3, 5
+COL_EAST, COL_NORTH = 7, 8          # Position East/North of launch (m)
 COL_LAT, COL_LON = 13, 14
 COL_PRESS = 48  # Air pressure (mbar = hPa)
 
@@ -58,6 +59,8 @@ def load_sim(path):
                     "alt": float(c[COL_ALT]),
                     "vv": float(c[COL_VV]),
                     "vacc": float(c[COL_VACC]),
+                    "east": float(c[COL_EAST]),
+                    "north": float(c[COL_NORTH]),
                     "lat": float(c[COL_LAT]),
                     "lon": float(c[COL_LON]),
                     "press": float(c[COL_PRESS]),
@@ -86,7 +89,7 @@ def interp(rows, t):
 
 
 def flight_state(t, ev):
-    """由模擬事件推韌體狀態機的 ST 值"""
+    """由模擬事件推韌體狀態機的 ST 值(現行 5 狀態)"""
     t_liftoff = ev.get("LIFTOFF", 1.1)
     t_deploy = ev.get("RECOVERY_DEVICE_DEPLOYMENT",
                       ev.get("APOGEE", 16.6) + 1.5)   # 傘壞的模擬檔:用 apogee+1.5s
@@ -102,11 +105,50 @@ def flight_state(t, ev):
     return ST_LANDED
 
 
+def flight_state12(t, ev, rate_hz):
+    """st.md 12 狀態版:事件(2/4/6/7/9/10)接管 ST 連發 4 幀後回主狀態。
+    地面站以第一幀時間戳去重、鎖 T0/T+。"""
+    t_ign = ev.get("IGNITION", 0.0)
+    t_burn = ev.get("BURNOUT", 5.9)
+    t_apo = ev.get("APOGEE", 16.6)
+    t_dep = ev.get("RECOVERY_DEVICE_DEPLOYMENT", t_apo + 1.5)
+    t_gnd = ev.get("GROUND_HIT", 1e9)
+    win = 4.0 / rate_hz                     # 事件連發 4 幀的時間窗(2Hz=2s)
+    # 事件優先(最近開始者勝,涵蓋 TOUCHDOWN/AIRBAG 相鄰重疊)
+    events = [(t_ign, 2), (t_burn, 4), (t_apo, 6), (t_dep, 7),
+              (t_gnd, 9), (t_gnd + win, 10)]
+    active = [(ts, code) for ts, code in events if ts <= t < ts + win]
+    if active:
+        return max(active)[1]               # 最近開始的事件接管
+    # 底層持續狀態
+    if t < -2.0:
+        return 0                            # IDLE(上電自檢)
+    if t < t_ign:
+        return 1                            # ARMED(上架待發)
+    if t < t_burn:
+        return 3                            # POWERED_FLIGHT
+    if t < t_apo:
+        return 5                            # COASTING
+    if t < t_gnd:
+        return 8                            # DESCENT
+    return 11                               # LANDED(落海待救)
+
+
+_gps_walk = [0.0, 0.0]   # GPS 隨機遊走狀態(米,東/北)——連續漂移比白噪真實
+
+
 def make_packet(t_ms, d, st):
     """組火箭端 2Hz 遙測封包(格式與 main.c LoRa 打包一字不差)"""
     n = random.gauss  # 感測噪聲讓資料「像活的」
     az_g = (d["vacc"] + 9.80665) / 9.80665 + n(0, 0.01)   # 比力近似(垂直向)
     kh = d["alt"] + n(0, 0.15)
+    # GPS 定位噪聲:隨機遊走(電離層/多路徑慢漂,夾 ±5m)+ 每包白噪 ~1.2m
+    for i in range(2):
+        _gps_walk[i] = max(-5.0, min(5.0, _gps_walk[i] + n(0, 0.6)))
+    m_per_deg = 111320.0
+    gps_lat = d["lat"] + (_gps_walk[1] + n(0, 1.2)) / m_per_deg
+    gps_lon = d["lon"] + (_gps_walk[0] + n(0, 1.2)) / (
+        m_per_deg * math.cos(math.radians(d["lat"])))
     return (
         "T{tms} AX{ax:+.3f} AY{ay:+.3f} AZ{az:+.3f} "
         "GX{gx:+.2f} GY{gy:+.2f} GZ{gz:+.2f} "
@@ -120,7 +162,7 @@ def make_packet(t_ms, d, st):
         rh=d["alt"] + n(0, 0.1), kh=kh, vz=d["vv"] + n(0, 0.05),
         ga=abs(az_g),
         st=st, sats=random.randint(14, 20),
-        lat=d["lat"], lon=d["lon"],
+        lat=gps_lat, lon=gps_lon,
     )
 
 
@@ -134,11 +176,40 @@ def main():
     ap.add_argument("--pre", type=float, default=5.0, help="seconds of IDLE before T0")
     ap.add_argument("--loop", action="store_true")
     ap.add_argument("--dry", action="store_true", help="print packets instead of serial")
+    ap.add_argument("--st12", action="store_true",
+                    help="use st.md 12-stage codes with 4-frame event bursts "
+                         "(for the new ground-station timeline); default = "
+                         "current firmware 5-state codes")
+    ap.add_argument("--lat0", type=float,
+                    help="override launch site latitude (e.g. 22.174847 Xuhai)")
+    ap.add_argument("--lon0", type=float,
+                    help="override launch site longitude (e.g. 120.892723)")
+    ap.add_argument("--heading", type=float, default=90.0,
+                    help="downrange heading in deg (90=east, used with --lat0/--lon0)")
     args = ap.parse_args()
 
     rows, ev = load_sim(args.csv)
     if not rows:
         sys.exit("no data rows parsed - is this an OpenRocket export?")
+
+    # ── 發射點/航向覆寫:把模擬的相對位移 (East,North) 旋轉到指定航向,
+    # 再投影到真實發射座標——地面站地圖顯示真實場景(旭海向東出海)。──
+    if args.lat0 is not None and args.lon0 is not None:
+        ref = max(rows, key=lambda r: r["east"] ** 2 + r["north"] ** 2)
+        phi_ref = math.atan2(ref["east"], ref["north"])   # 模擬原生漂移方位
+        delta = math.radians(args.heading) - phi_ref
+        cosd, sind = math.cos(delta), math.sin(delta)
+        m_per_deg = 111320.0
+        coslat = math.cos(math.radians(args.lat0))
+        for r in rows:
+            e, n = r["east"], r["north"]
+            n2 = n * cosd - e * sind                       # 旋轉到新航向
+            e2 = n * sind + e * cosd
+            r["lat"] = args.lat0 + n2 / m_per_deg
+            r["lon"] = args.lon0 + e2 / (m_per_deg * coslat)
+        d_max = math.hypot(ref["east"], ref["north"])
+        print(f"GPS override: launch=({args.lat0:.6f},{args.lon0:.6f}) "
+              f"heading={args.heading:.0f}deg  max downrange={d_max:.0f}m")
     t_end = min(rows[-1]["t"], ev.get("GROUND_HIT", rows[-1]["t"]) + 30.0)
     print(f"loaded {len(rows)} rows, events: "
           + ", ".join(f"{k}@{v:.2f}s" for k, v in sorted(ev.items(), key=lambda x: x[1])))
@@ -163,11 +234,15 @@ def main():
         emit("MOD: BMP=1 IMU=1 LORA=1  REF_PRESS={:.2f} hPa  CLK=HSE  RST=SIM-REPLAY\r\n"
              .format(rows[0]["press"]))
         deploy_sent = False
+        airbag_sent = False
         t_sim = -args.pre                    # 負值=發射前 IDLE 墊場
         boot_ms = 3890                        # 模仿真韌體第一包 uptime
         while t_sim < t_end:
             d = interp(rows, max(t_sim, 0.0))
-            st = ST_IDLE if t_sim < 0 else flight_state(t_sim, ev)
+            if args.st12:
+                st = flight_state12(t_sim, ev, args.rate)
+            else:
+                st = ST_IDLE if t_sim < 0 else flight_state(t_sim, ev)
             t_ms = boot_ms + int((t_sim + args.pre) * 1000)
             emit(make_packet(t_ms, d, st))
             # 開傘事件 MSG(與韌體自動開傘的下傳行為一致)
@@ -177,6 +252,10 @@ def main():
                 emit("MSG SUCCESS Parachute deployed (auto A+B pk={:.1f}m now={:.1f}m "
                      "vz={:.2f}m/s)\r\n".format(peak, d["alt"], d["vv"]))
                 deploy_sent = True
+            # 落海/觸地氣囊事件(與韌體 airbag_fire_auto 的下傳行為一致)
+            if not airbag_sent and t_sim >= ev.get("GROUND_HIT", 1e9):
+                emit("MSG INFO Airbag inflation started (auto splashdown)\r\n")
+                airbag_sent = True
             time.sleep(period / args.speed)
             t_sim += period
         print("\n[replay] flight complete "
