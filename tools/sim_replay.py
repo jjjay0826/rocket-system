@@ -224,6 +224,7 @@ def main():
         emit("MOD: BMP=1 IMU=1 LORA=1  REF_PRESS={:.2f} hPa  CLK=HSE  RST=SIM-REPLAY\r\n"
              .format(rows[0]["press"]))
         deploy_sent = False
+        airbag_sent = False
         t_sim = -args.pre                    # 負值=發射前 IDLE 墊場
         boot_ms = 3890                        # 模仿真韌體第一包 uptime
         while t_sim < t_end:
@@ -241,6 +242,10 @@ def main():
                 emit("MSG SUCCESS Parachute deployed (auto A+B pk={:.1f}m now={:.1f}m "
                      "vz={:.2f}m/s)\r\n".format(peak, d["alt"], d["vv"]))
                 deploy_sent = True
+            # 落海/觸地氣囊事件(與韌體 airbag_fire_auto 的下傳行為一致)
+            if not airbag_sent and t_sim >= ev.get("GROUND_HIT", 1e9):
+                emit("MSG INFO Airbag inflation started (auto splashdown)\r\n")
+                airbag_sent = True
             time.sleep(period / args.speed)
             t_sim += period
         print("\n[replay] flight complete "
