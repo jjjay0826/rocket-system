@@ -86,7 +86,7 @@ def interp(rows, t):
 
 
 def flight_state(t, ev):
-    """由模擬事件推韌體狀態機的 ST 值"""
+    """由模擬事件推韌體狀態機的 ST 值(現行 5 狀態)"""
     t_liftoff = ev.get("LIFTOFF", 1.1)
     t_deploy = ev.get("RECOVERY_DEVICE_DEPLOYMENT",
                       ev.get("APOGEE", 16.6) + 1.5)   # 傘壞的模擬檔:用 apogee+1.5s
@@ -100,6 +100,35 @@ def flight_state(t, ev):
     if t < t_ground + 10.0:                 # LANDED 需靜止 10s
         return ST_DEPLOYED
     return ST_LANDED
+
+
+def flight_state12(t, ev, rate_hz):
+    """st.md 12 狀態版:事件(2/4/6/7/9/10)接管 ST 連發 4 幀後回主狀態。
+    地面站以第一幀時間戳去重、鎖 T0/T+。"""
+    t_ign = ev.get("IGNITION", 0.0)
+    t_burn = ev.get("BURNOUT", 5.9)
+    t_apo = ev.get("APOGEE", 16.6)
+    t_dep = ev.get("RECOVERY_DEVICE_DEPLOYMENT", t_apo + 1.5)
+    t_gnd = ev.get("GROUND_HIT", 1e9)
+    win = 4.0 / rate_hz                     # 事件連發 4 幀的時間窗(2Hz=2s)
+    # 事件優先(最近開始者勝,涵蓋 TOUCHDOWN/AIRBAG 相鄰重疊)
+    events = [(t_ign, 2), (t_burn, 4), (t_apo, 6), (t_dep, 7),
+              (t_gnd, 9), (t_gnd + win, 10)]
+    active = [(ts, code) for ts, code in events if ts <= t < ts + win]
+    if active:
+        return max(active)[1]               # 最近開始的事件接管
+    # 底層持續狀態
+    if t < -2.0:
+        return 0                            # IDLE(上電自檢)
+    if t < t_ign:
+        return 1                            # ARMED(上架待發)
+    if t < t_burn:
+        return 3                            # POWERED_FLIGHT
+    if t < t_apo:
+        return 5                            # COASTING
+    if t < t_gnd:
+        return 8                            # DESCENT
+    return 11                               # LANDED(落海待救)
 
 
 def make_packet(t_ms, d, st):
@@ -134,6 +163,10 @@ def main():
     ap.add_argument("--pre", type=float, default=5.0, help="seconds of IDLE before T0")
     ap.add_argument("--loop", action="store_true")
     ap.add_argument("--dry", action="store_true", help="print packets instead of serial")
+    ap.add_argument("--st12", action="store_true",
+                    help="use st.md 12-stage codes with 4-frame event bursts "
+                         "(for the new ground-station timeline); default = "
+                         "current firmware 5-state codes")
     args = ap.parse_args()
 
     rows, ev = load_sim(args.csv)
@@ -167,7 +200,10 @@ def main():
         boot_ms = 3890                        # 模仿真韌體第一包 uptime
         while t_sim < t_end:
             d = interp(rows, max(t_sim, 0.0))
-            st = ST_IDLE if t_sim < 0 else flight_state(t_sim, ev)
+            if args.st12:
+                st = flight_state12(t_sim, ev, args.rate)
+            else:
+                st = ST_IDLE if t_sim < 0 else flight_state(t_sim, ev)
             t_ms = boot_ms + int((t_sim + args.pre) * 1000)
             emit(make_packet(t_ms, d, st))
             # 開傘事件 MSG(與韌體自動開傘的下傳行為一致)
