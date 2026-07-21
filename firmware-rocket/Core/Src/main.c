@@ -1469,9 +1469,11 @@ int main(void)
     }
 
     /* ─── UART/CDC 輸出：一般每 500ms；LANDED 後降頻到每 5s ───
-     * （僅遙測輸出；SD 寫入節拍由上方 t_csv 區塊獨立控制）      */
+     * （僅遙測輸出；SD 寫入節拍由上方 t_csv 區塊獨立控制）
+     * BRIDGE 模式跳過：USB 讓給 sim_replay 輸入，不再狂寫自身遙測
+     * （否則螢幕亂＋無人讀時 cdc_write 空轉吃 CPU）。 */
     uint32_t out_interval = (flight_state == FLIGHT_LANDED) ? LAND_LOG_INTERVAL : 500UL;
-    if (now - t_out >= out_interval) {
+    if (now - t_out >= out_interval && !cmd_bridge_active()) {
       t_out = now;
       /* LED_B10 toggle removed to serve as dedicated LoRa TX flicker */
 
