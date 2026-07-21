@@ -22,13 +22,14 @@ firmware-rocket 的下行封包格式,經第二顆 E22(USB-TTL)發射,地面站
 本腳本 --port COM20、地面站 backend 設 COM21,即可跳過 RF 直餵。
 """
 import argparse
-import math
+import math      # noqa: F401 — 座標覆寫用
 import random
 import sys
 import time
 
 # ── OpenRocket 匯出欄位 index(與本專案 sim CSV 一致)──────────────
 COL_T, COL_ALT, COL_VV, COL_VACC = 0, 1, 3, 5
+COL_EAST, COL_NORTH = 7, 8          # Position East/North of launch (m)
 COL_LAT, COL_LON = 13, 14
 COL_PRESS = 48  # Air pressure (mbar = hPa)
 
@@ -58,6 +59,8 @@ def load_sim(path):
                     "alt": float(c[COL_ALT]),
                     "vv": float(c[COL_VV]),
                     "vacc": float(c[COL_VACC]),
+                    "east": float(c[COL_EAST]),
+                    "north": float(c[COL_NORTH]),
                     "lat": float(c[COL_LAT]),
                     "lon": float(c[COL_LON]),
                     "press": float(c[COL_PRESS]),
@@ -167,11 +170,36 @@ def main():
                     help="use st.md 12-stage codes with 4-frame event bursts "
                          "(for the new ground-station timeline); default = "
                          "current firmware 5-state codes")
+    ap.add_argument("--lat0", type=float,
+                    help="override launch site latitude (e.g. 22.174847 Xuhai)")
+    ap.add_argument("--lon0", type=float,
+                    help="override launch site longitude (e.g. 120.892723)")
+    ap.add_argument("--heading", type=float, default=90.0,
+                    help="downrange heading in deg (90=east, used with --lat0/--lon0)")
     args = ap.parse_args()
 
     rows, ev = load_sim(args.csv)
     if not rows:
         sys.exit("no data rows parsed - is this an OpenRocket export?")
+
+    # ── 發射點/航向覆寫:把模擬的相對位移 (East,North) 旋轉到指定航向,
+    # 再投影到真實發射座標——地面站地圖顯示真實場景(旭海向東出海)。──
+    if args.lat0 is not None and args.lon0 is not None:
+        ref = max(rows, key=lambda r: r["east"] ** 2 + r["north"] ** 2)
+        phi_ref = math.atan2(ref["east"], ref["north"])   # 模擬原生漂移方位
+        delta = math.radians(args.heading) - phi_ref
+        cosd, sind = math.cos(delta), math.sin(delta)
+        m_per_deg = 111320.0
+        coslat = math.cos(math.radians(args.lat0))
+        for r in rows:
+            e, n = r["east"], r["north"]
+            n2 = n * cosd - e * sind                       # 旋轉到新航向
+            e2 = n * sind + e * cosd
+            r["lat"] = args.lat0 + n2 / m_per_deg
+            r["lon"] = args.lon0 + e2 / (m_per_deg * coslat)
+        d_max = math.hypot(ref["east"], ref["north"])
+        print(f"GPS override: launch=({args.lat0:.6f},{args.lon0:.6f}) "
+              f"heading={args.heading:.0f}deg  max downrange={d_max:.0f}m")
     t_end = min(rows[-1]["t"], ev.get("GROUND_HIT", rows[-1]["t"]) + 30.0)
     print(f"loaded {len(rows)} rows, events: "
           + ", ".join(f"{k}@{v:.2f}s" for k, v in sorted(ev.items(), key=lambda x: x[1])))
