@@ -12,6 +12,7 @@
 #include "logger.h"   /* includes fatfs.h → f_unlink, FIL, etc. */
 #include "main.h"
 #include "usart.h"
+#include "lora_e22.h" /* BRIDGE 模式轉發用 LoRa_SendStr */
 
 /* Provided by main.c (non-static); both go to their respective buses */
 extern void uart1_write(const char *s);
@@ -39,13 +40,22 @@ static void echo_push_str(const char *s)
 }
 
 /* ---- Command line buffer ----------------------------------------------- */
-#define CMD_BUF_SIZE 128
+#define CMD_BUF_SIZE 192   /* 128→192 (2026-07-20)：BRIDGE 模式要裝下 ~150 字元遙測行 */
 static char cmd_buffer[CMD_BUF_SIZE];
 static uint8_t cmd_idx = 0;
 
 /* Single-slot pending command (written by ISR, read by main loop) */
 static volatile uint8_t cmd_pending = 0;
 static char pending_cmd[CMD_BUF_SIZE];
+
+/* ── BRIDGE 模式（2026-07-20）：USB CDC → LoRa 原樣轉發 ─────────────────
+ * 用途：把火箭板當「USB-TTL + E22」dongle 用——地面站模擬回放
+ * （tools/sim_replay.py --port <火箭板COM>）不需額外硬體。
+ * 進入：BRIDGE 命令；退出：EXITBRIDGE 一行（或 reset）。
+ * 模式中：每一行原樣 +\r\n 轉發 LoRa；main.c 據 cmd_bridge_active()
+ * 靜音自身 2Hz 遙測（避免真假兩股資料混流）。 */
+static volatile uint8_t bridge_mode = 0;
+uint8_t cmd_bridge_active(void) { return bridge_mode; }
 
 /* ---- Helper: command output → USB CDC ----------------------------------
  * 舊板 debug 走實體 UART1，曾「UART1+CDC 各送一份」；本板 uart1_write 已
@@ -195,6 +205,14 @@ static void process_command_exec(const char *cmd)
       cmd_out("\r\nLog truncated to real size. Power off & pull the card.\r\n\r\n> ");
     else
       cmd_out("\r\n[ERR] TRUNC failed (SD not ready?)\r\n\r\n> ");
+  }
+  else if (strncmp(cmd, "BRIDGE", 6) == 0)
+  {
+    /* USB→LoRa 透傳橋接：火箭板變 dongle（sim_replay.py 直插用）。
+     * 自身遙測靜音由 main.c 讀 cmd_bridge_active() 處理。 */
+    bridge_mode = 1;
+    cmd_out("\r\nBRIDGE ON: every line -> LoRa verbatim. Own telemetry muted.\r\n"
+            "Type EXITBRIDGE (or reset) to leave.\r\n");
   }
   else if (strncmp(cmd, "STATUS", 6) == 0)
   {
@@ -358,6 +376,19 @@ void cmd_execute_pending(void)
 {
   if (!cmd_pending) return;
   cmd_pending = 0;
+  /* BRIDGE 模式：整行原樣轉發 LoRa（不進命令解析），EXITBRIDGE 退出 */
+  if (bridge_mode) {
+    if (strncmp(pending_cmd, "EXITBRIDGE", 10) == 0) {
+      bridge_mode = 0;
+      cmd_out("BRIDGE OFF - normal telemetry resumed\r\n\r\n> ");
+    } else if (pending_cmd[0]) {
+      char fwd[CMD_BUF_SIZE + 2];
+      snprintf(fwd, sizeof(fwd), "%s\r\n", pending_cmd);
+      LoRa_SendStr(fwd);
+    }
+    pending_cmd[0] = '\0';
+    return;
+  }
   process_command_exec(pending_cmd);
   pending_cmd[0] = '\0';
 }

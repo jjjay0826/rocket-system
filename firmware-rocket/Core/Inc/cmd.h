@@ -23,4 +23,8 @@ void cmd_flush_echo(void);
 /* Returns 1 if user has started typing a command but not yet pressed Enter */
 uint8_t cmd_is_typing(void);
 
+/* Returns 1 while BRIDGE (USB->LoRa passthrough) mode is active;
+ * main.c mutes its own telemetry so only replayed data goes on air */
+uint8_t cmd_bridge_active(void);
+
 #endif // __CMD_H__

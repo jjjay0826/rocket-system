@@ -1309,7 +1309,8 @@ int main(void)
 
       /* PB7(SIG_1) 接地時拉低，禁用 LoRa */
       uint8_t lora_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
-      if (mod.lora && !lora_disabled) {
+      /* BRIDGE 模式：靜音自身遙測，空口只留 sim_replay 轉發的資料 */
+      if (mod.lora && !lora_disabled && !cmd_bridge_active()) {
         /* TX 空閒時發送新封包（poll 已移至主迴圈頂部，每次迴圈執行）*/
         if (!LoRa_IsBusy()) {
           lora_seq++;   /* 序號遞增（接收端用來偵測掉包）*/
