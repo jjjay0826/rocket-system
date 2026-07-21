@@ -285,8 +285,11 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 {
   uint8_t result = USBD_OK;
   /* USER CODE BEGIN 7 */
+  if (hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED) {
+    return USBD_FAIL;
+  }
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
-  if (hcdc->TxState != 0){
+  if (hcdc == NULL || hcdc->TxState != 0){
     return USBD_BUSY;
   }
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, Buf, Len);
@@ -305,13 +308,16 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
   *
   * @param  Buf: Buffer of data to be received
   * @param  Len: Number of data received (in bytes)
-  * @retval Result of the operation: USBD_OK if all operations are OK else USBD_FAIL
+  * @param  epnum: Endpoint number
+  * @retval USBD_OK if all operations are OK else USBD_FAIL
   */
-static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
+static int8_t CDC_TransmitCplt_FS(uint8_t *pbuf, uint32_t *Len, uint8_t epnum)
 {
   uint8_t result = USBD_OK;
   /* USER CODE BEGIN 13 */
-  UNUSED(Buf);
+  extern void LoraBridge_UsbTxCpltCallback(void);
+  LoraBridge_UsbTxCpltCallback();
+  UNUSED(pbuf);
   UNUSED(Len);
   UNUSED(epnum);
   /* USER CODE END 13 */

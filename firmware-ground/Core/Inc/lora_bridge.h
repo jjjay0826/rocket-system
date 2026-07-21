@@ -19,6 +19,7 @@ extern "C" {
 void LoraBridge_Init(void);
 void LoraBridge_Process(void);
 void LoraBridge_UsbRxCallback(const uint8_t *buf, uint32_t len);
+void LoraBridge_UsbTxCpltCallback(void);
 void LoraBridge_UartRxCpltCallback(UART_HandleTypeDef *huart);
 
 #ifdef __cplusplus
