@@ -113,7 +113,11 @@ void cmd_handle_char(uint8_t c)
 
     cmd_idx = 0;
     echo_push_str("\r\n");   /* ensure terminal goes to new line */
-    cmd_pending = 1;
+    /* 只在有內容時才設 pending：\r\n 序列的 \n 會多觸發一次「空行」，
+     * 空行不可覆蓋單槽 pending_cmd——否則 BRIDGE 轉發拿到的永遠是被 \n
+     * 洗掉的空字串＝什麼都沒發（2026-07-20 sim_replay 實測：地面 FT232
+     * RX 完全不閃）。手打 CR-only 剛好躲過，CRLF 就中招。 */
+    if (jj > 0) cmd_pending = 1;
   }
 }
 
