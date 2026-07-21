@@ -134,11 +134,21 @@ def flight_state12(t, ev, rate_hz):
     return 11                               # LANDED(落海待救)
 
 
+_gps_walk = [0.0, 0.0]   # GPS 隨機遊走狀態(米,東/北)——連續漂移比白噪真實
+
+
 def make_packet(t_ms, d, st):
     """組火箭端 2Hz 遙測封包(格式與 main.c LoRa 打包一字不差)"""
     n = random.gauss  # 感測噪聲讓資料「像活的」
     az_g = (d["vacc"] + 9.80665) / 9.80665 + n(0, 0.01)   # 比力近似(垂直向)
     kh = d["alt"] + n(0, 0.15)
+    # GPS 定位噪聲:隨機遊走(電離層/多路徑慢漂,夾 ±5m)+ 每包白噪 ~1.2m
+    for i in range(2):
+        _gps_walk[i] = max(-5.0, min(5.0, _gps_walk[i] + n(0, 0.6)))
+    m_per_deg = 111320.0
+    gps_lat = d["lat"] + (_gps_walk[1] + n(0, 1.2)) / m_per_deg
+    gps_lon = d["lon"] + (_gps_walk[0] + n(0, 1.2)) / (
+        m_per_deg * math.cos(math.radians(d["lat"])))
     return (
         "T{tms} AX{ax:+.3f} AY{ay:+.3f} AZ{az:+.3f} "
         "GX{gx:+.2f} GY{gy:+.2f} GZ{gz:+.2f} "
@@ -152,7 +162,7 @@ def make_packet(t_ms, d, st):
         rh=d["alt"] + n(0, 0.1), kh=kh, vz=d["vv"] + n(0, 0.05),
         ga=abs(az_g),
         st=st, sats=random.randint(14, 20),
-        lat=d["lat"], lon=d["lon"],
+        lat=gps_lat, lon=gps_lon,
     )
 
 
