@@ -103,21 +103,24 @@ void cmd_handle_char(uint8_t c)
   if (c == '\r' || c == '\n') {
     cmd_buffer[cmd_idx] = '\0';
 
-    /* Copy trimmed command to pending slot */
+    /* ★空行（\r\n 的 \n 那次觸發）絕對不能碰 pending_cmd 單槽——
+     * 第一版修復只擋了 cmd_pending 旗標，但 pending_cmd[0]='\0' 照樣把
+     * \r 那次剛存好的整行洗成空字串（ISR 連續處理 \r\n，主迴圈來不及
+     * 消化）→ BRIDGE 拿到「旗標=1、內容=空」＝還是什麼都沒轉發
+     * （2026-07-20 二修：地面 FT232 RX 仍不閃才揪到）。
+     * 現在：有內容才複製、才設旗標；空行只重置行緩衝。 */
     int ii = 0, jj = 0;
     while (cmd_buffer[ii] == ' ' || cmd_buffer[ii] == '\t') ii++;
-    while (cmd_buffer[ii] && cmd_buffer[ii] != '\r' && cmd_buffer[ii] != '\n'
-           && jj < CMD_BUF_SIZE - 1)
-      pending_cmd[jj++] = cmd_buffer[ii++];
-    pending_cmd[jj] = '\0';
+    if (cmd_buffer[ii] && cmd_buffer[ii] != '\r' && cmd_buffer[ii] != '\n') {
+      while (cmd_buffer[ii] && cmd_buffer[ii] != '\r' && cmd_buffer[ii] != '\n'
+             && jj < CMD_BUF_SIZE - 1)
+        pending_cmd[jj++] = cmd_buffer[ii++];
+      pending_cmd[jj] = '\0';
+      cmd_pending = 1;
+    }
 
     cmd_idx = 0;
     echo_push_str("\r\n");   /* ensure terminal goes to new line */
-    /* 只在有內容時才設 pending：\r\n 序列的 \n 會多觸發一次「空行」，
-     * 空行不可覆蓋單槽 pending_cmd——否則 BRIDGE 轉發拿到的永遠是被 \n
-     * 洗掉的空字串＝什麼都沒發（2026-07-20 sim_replay 實測：地面 FT232
-     * RX 完全不閃）。手打 CR-only 剛好躲過，CRLF 就中招。 */
-    if (jj > 0) cmd_pending = 1;
   }
 }
 
