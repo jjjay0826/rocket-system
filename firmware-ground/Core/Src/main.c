@@ -25,7 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "lora_bridge.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -94,7 +94,7 @@ int main(void)
   MX_FATFS_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  LoraBridge_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -104,6 +104,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    LoraBridge_Process();
   }
   /* USER CODE END 3 */
 }
