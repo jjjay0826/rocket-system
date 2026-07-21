@@ -23,7 +23,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "usart.h"
-#include "lora_e22.h"
 #include "usbd_cdc_if.h"
 /* USER CODE END Includes */
 
@@ -231,42 +230,5 @@ void OTG_FS_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-
-/* ★ USARTx_IRQHandler 已由 CubeMX 生成（上方），不可在此重複定義，否則 link 衝突。
- * rocket_v2 UART 角色：USART1 = LoRa E22、USART2 = GPS。
- * 回呼依 instance 分派： */
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    /* USART1 = LoRa E22 上行接收（地面端唯一的 UART 接收來源）*/
-    LoRa_OnRxByte();
-  }
-}
-
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    /* USART1 = LoRa E22 TX 完成 → 清 busy（非阻塞 TX）*/
-    LoRa_OnTxDone();
-  }
-}
-
-
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    /* 針對 F4 系列清除 ORE 的傳統萬用方法：依序讀取 SR 與 DR 暫存器 */
-    __IO uint32_t tmpreg;
-    tmpreg = huart->Instance->SR;
-    tmpreg = huart->Instance->DR;
-    (void)tmpreg; // 避免 compiler 報 unused variable 警告
-
-    /* 重新掛載中斷 */
-    LoRa_StartRx();
-  }
-}
 
 /* USER CODE END 1 */

@@ -78,6 +78,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     LoraBridge_UartRxCpltCallback(huart);
 }
 
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART2) {
+        __IO uint32_t tmpreg;
+        tmpreg = huart->Instance->SR;
+        tmpreg = huart->Instance->DR;
+        (void)tmpreg;
+        HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1);
+    }
+}
+
 void LoraBridge_Process(void) {
     /* 1. LoRa (USART2) -> USB CDC */
     uint32_t lora_avail = RingBuffer_Available(&ring_lora_to_usb);
@@ -96,11 +106,14 @@ void LoraBridge_Process(void) {
     /* 2. USB CDC -> LoRa (USART2) */
     uint32_t usb_avail = RingBuffer_Available(&ring_usb_to_lora);
     if (usb_avail > 0) {
-        /* Optionally check AUX pin (PA1): High = Idle / ready */
         GPIO_PinState aux_state = HAL_GPIO_ReadPin(LORA_AUX_GPIO_Port, LORA_AUX_Pin);
         if (aux_state == GPIO_PIN_SET) {
-            uint8_t tx_byte = RingBuffer_Get(&ring_usb_to_lora);
-            HAL_UART_Transmit(&huart2, &tx_byte, 1, 10);
+            uint8_t uart_tx_temp[128];
+            uint32_t chunk = (usb_avail > sizeof(uart_tx_temp)) ? sizeof(uart_tx_temp) : usb_avail;
+            for (uint32_t i = 0; i < chunk; i++) {
+                uart_tx_temp[i] = RingBuffer_Get(&ring_usb_to_lora);
+            }
+            HAL_UART_Transmit(&huart2, uart_tx_temp, (uint16_t)chunk, 500);
         }
     }
 }
