@@ -522,6 +522,31 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     reply("MSG INFO MANUAL SAFE (disarmed)\r\n");
     return;
   }
+  /* RECAL：氣壓零點重校（發射台歸零高度用，對應地面站 /cal）。
+   * 只在 IDLE 受理——飛行中重設 ref_press = 高度基準亂掉 = 開傘判斷毀滅，
+   * 此閘門連 REMOTE_CMD_UNRESTRICTED 都不跳過。取 8 筆有效樣本平均
+   * （約 80ms 阻塞，IDLE 靜置下無害）；BMP 死掉時誠實回 ERROR。*/
+  if (strcmp(line, "#CMD:RECAL_SALT5566#") == 0) {
+    if (flight_state != FLIGHT_IDLE) {
+      reply("MSG WARN REJECT recal only allowed in IDLE\r\n");
+      return;
+    }
+    float psum = 0.f; int pn = 0;
+    for (int i = 0; i < 8; i++) {
+      float p = BMP585_ReadPressure();
+      if (p > 800.f && p < 1100.f) { psum += p; pn++; }
+      HAL_Delay(10);
+    }
+    if (pn < 4) { reply("MSG ERROR RECAL failed - BMP no valid pressure\r\n"); return; }
+    ref_press = psum / (float)pn;
+    kf_p_est  = ref_press;  kf_p_err = 1.0f;
+    kf2_h = 0.0f; kf2_v = 0.0f;
+    kf2_p00 = 1.0f; kf2_p01 = 0.0f; kf2_p11 = 1.0f;
+    snprintf(rb, sizeof(rb), "MSG SUCCESS RECAL ref_press=%.2f hPa (n=%d)\r\n",
+             ref_press, pn);
+    reply(rb);
+    return;
+  }
   /* ── 遠端緊急命令（2026-07-20，對接 rocket_side_requirements.md）────
    * 地面站打 dpl/abg → 自動下傳隊伍秘鑰字串、burst 4 次×50ms（半雙工避障，
    * 重複命中由下方 already-* 檢查吸收）。單發單向設計論證見 git 歷史
