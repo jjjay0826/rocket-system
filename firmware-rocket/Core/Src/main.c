@@ -129,6 +129,13 @@ extern SPI_HandleTypeDef hspi2;
  *            「驗證啟動狀態時人員無需靠近火箭 100mm 內（可透過電腦連線確認）」。
  *  ※ 純量測、不驅動任何東西：讀錯也不會讓 pyro 走火，安全仍由機械 arming
  *     開關實體斷路提供（規範 4.6.3 要求的第 2 個「獨立」事件）。 */
+/* 🔴 分壓電路（22k/10k/0.1uF ×2 組）實際焊上去之前，保持註解！
+ *    未接線時 PB0/PB1 浮空，ADC 讀到的是隨機雜訊：可能落在 0V 附近 →
+ *    地面站誤報「保險絲熔斷」，也可能落在高處 → 誤報「已武裝」。兩種都是
+ *    比沒有功能更糟的假訊號。停用時遙測送 -1（＝本板無此量測能力），
+ *    地面站完全不顯示。硬體裝好後取消註解、重編燒錄即可。 */
+//#define PYRO_ADC_FITTED
+
 static uint8_t  pyro_adc_ok = 0;      /* ADC 初始化成功旗標 */
 static float    v_fuse      = -1.0f;  /* PB1 保險絲後端電壓（-1=尚未量測）*/
 static float    v_arm       = -1.0f;  /* PB0 arming 開關後端電壓 */
@@ -167,6 +174,10 @@ void SystemClock_Config(void);
  * （遙測送 -1 = 「沒有量測能力」，與「量到 0V＝熔斷」明確區分）。*/
 static void PyroADC_Init(void)
 {
+#ifndef PYRO_ADC_FITTED
+  pyro_adc_ok = 0;   /* 硬體未裝：不初始化，v_fuse/v_arm 維持 -1（無能力）*/
+  return;
+#else
   RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN;
   RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
 
@@ -190,6 +201,7 @@ static void PyroADC_Init(void)
   ADC1->CR2 |= ADC_CR2_ADON;        /* 上電 */
   HAL_Delay(1);                     /* ADC + VREFINT 穩定時間（需 >10us）*/
   pyro_adc_ok = 1;
+#endif
 }
 
 /* 單通道取樣。112 cycles：分壓源阻抗 22k∥10k≈6.9k 偏高，取樣電容要夠時間
