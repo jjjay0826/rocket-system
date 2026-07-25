@@ -922,13 +922,14 @@ int main(void)
       v_fuse, v_arm,
       (pyro_adc_ok && v_fuse >= 0.0f && v_fuse < 5.0f) ? "  FUSE BLOWN?!" : "");
     cdc_write(b);
-    /* PB7(SIG_1) 接地時拉低，禁用 LoRa */
-    uint8_t lora_init_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
-    if (mod.lora && !lora_init_disabled) LoRa_SendStr(b);
+    /* ★PB7 的「接地禁用 LoRa」跳線已廢除（2026-07-26）：該腳改作 E22 的 M0
+     * 模式腳。透傳模式下 M0 本來就是低電平，舊邏輯會把它讀成「使用者要求
+     * 禁用」→ 遙測整個停掉。飛行中沒有任何理由關掉唯一的下行鏈路。 */
+    if (mod.lora) LoRa_SendStr(b);
 #ifdef REMOTE_CMD_UNRESTRICTED
     /* 解禁版警示廣播：USB＋LoRa 都吼一聲，帶著這版上發射台前一定看得到 */
     cdc_write("MSG ERROR UNRESTRICTED MODE - dpl/abg gates OFF - NOT FLIGHT SAFE\r\n");
-    if (mod.lora && !lora_init_disabled)
+    if (mod.lora)
       LoRa_SendStr("MSG ERROR UNRESTRICTED MODE - dpl/abg gates OFF - NOT FLIGHT SAFE\r\n");
 #endif
   }
@@ -1484,10 +1485,9 @@ int main(void)
     if (now - t_lora >= 500) {
       t_lora = now;
 
-      /* PB7(SIG_1) 接地時拉低，禁用 LoRa */
-      uint8_t lora_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
-      /* BRIDGE 模式：靜音自身遙測，空口只留 sim_replay 轉發的資料 */
-      if (mod.lora && !lora_disabled && !cmd_bridge_active()) {
+      /* BRIDGE 模式：靜音自身遙測，空口只留 sim_replay 轉發的資料
+       * （PB7 禁用跳線已廢除，見上方註解——該腳現為 E22 M0）*/
+      if (mod.lora && !cmd_bridge_active()) {
         /* TX 空閒時發送新封包（poll 已移至主迴圈頂部，每次迴圈執行）*/
         if (!LoRa_IsBusy()) {
           lora_seq++;   /* 序號遞增（接收端用來偵測掉包）*/
@@ -1745,24 +1745,11 @@ int main(void)
 
     /* ─── 互動功能與指示燈狀態更新 ─── */
     {
-      // 1. 讀取 LoRa 禁用狀態 (PB7 / SIG_1_Pin 接地)
-      uint8_t lora_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
-
-      // 2. 左側指示燈 B10（Active High：SET=亮，RESET=滅）
-      //    LoRa 傳輸中亮；LoRa 禁用或無傳輸則滅
-      if (mod.lora ) {
-        if(lora_disabled){
-          /* doc(interactive_features.md §3)：disable=恆滅。舊碼寫成恆亮
-           * 與規格相反（2026-07-20 使用者對板實測抓到），改回對齊 doc */
-          HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_RESET); /* 滅 */
-        } else if(lora_tx_pending){
-          HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_SET);   /* 亮 */
-        } else {
-          HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_RESET); /* 滅 */
-        }
-      }else {
-        HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin, GPIO_PIN_RESET); /* 滅 */
-      }
+      // 1. 左側指示燈 B10（Active High：SET=亮，RESET=滅）＝LoRa 正在傳送
+      //    ★PB7 禁用跳線已廢除（該腳改作 E22 M0），LED 純看實際 TX 活動：
+      //      閃爍＝正在下行、恆滅＝模組沒起來或此刻沒在發。
+      HAL_GPIO_WritePin(LED_B10_GPIO_Port, LED_B10_Pin,
+                        (mod.lora && lora_tx_pending) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
       // 3. 右側指示燈 B2（Active High：SET=亮，RESET=滅）系統綜合狀態
       static uint32_t t_led_b2 = 0;
