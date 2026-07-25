@@ -21,12 +21,27 @@
 extern UART_HandleTypeDef huart1;
 #define LORA_UART   (&huart1)
 
-/* ── 若 M0/M1 接 MCU GPIO，取消註解並填腳位（透傳模式 = 兩腳皆 LOW）──
-#define LORA_M0_PORT  GPIOx
-#define LORA_M0_PIN   GPIO_PIN_x
-#define LORA_M1_PORT  GPIOx
-#define LORA_M1_PIN   GPIO_PIN_x
+/* ── M0/M1 模式腳（換頻需要，2026-07-26）───────────────────────────────
+ * 🔴 硬體前提：E22 的 M0/M1 必須已從 GND 切離、改接到下面兩支 MCU 腳。
+ *    ⚠ 若模組 M0/M1 仍焊死在 GND 而啟用此巨集 → MCU 推挽輸出對地短路
+ *      → 燒 GPIO。硬體改好之前，這行必須保持註解。
+ *
+ *    PB7 = 原 SIG_1（禁用 LoRa 的跳線，已廢除）→ M0
+ *    PB5 = 原 SIG_3（本來就沒用到）           → M1
+ *    改線後 gpio.c 的 PB7 也要從輸入改成推挽輸出（見 LoRa_ModePinsInit）。
+ *
+ * 為什麼要做：規範 4.1.4.3 要求決賽前完成不同頻道通訊測試以避開他隊同頻
+ * 干擾。M0/M1 硬接地時只能拆下模組、接 USB-TTL、開上位機才改得了頻率，
+ * 比賽現場來不及；接到 GPIO 後地面站打一行指令就換完。
  */
+//#define LORA_MODE_PINS
+
+#ifdef LORA_MODE_PINS
+#define LORA_M0_PORT  GPIOB
+#define LORA_M0_PIN   GPIO_PIN_7
+#define LORA_M1_PORT  GPIOB
+#define LORA_M1_PIN   GPIO_PIN_5
+#endif
 
 #define LORA_TX_TIMEOUT_MS  500U   /* UART IT 傳送超時保護 */
 #define LORA_RXBUF_SIZE     256U   /* 必須為 2 的次方 */
@@ -65,10 +80,19 @@ static uint8_t  rx_byte;                 /* 單 byte IT 暫存 */
 /* ══════════════════════════════════════════════════════ */
 int LoRa_Init(void)
 {
-#ifdef LORA_M0_PORT
-    /* 透傳模式：M0=0, M1=0 */
-    HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_RESET);
+#ifdef LORA_MODE_PINS
+    /* M0/M1 就地設為推挽輸出並拉低＝透傳模式（不依賴 .ioc，同 AUX 的做法）*/
+    {
+        GPIO_InitTypeDef gi = {0};
+        __HAL_RCC_GPIOB_CLK_ENABLE();
+        HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_RESET);
+        gi.Pin   = LORA_M0_PIN | LORA_M1_PIN;
+        gi.Mode  = GPIO_MODE_OUTPUT_PP;
+        gi.Pull  = GPIO_NOPULL;
+        gi.Speed = GPIO_SPEED_FREQ_LOW;
+        HAL_GPIO_Init(GPIOB, &gi);
+    }
     HAL_Delay(10);   /* 等 E22 進入模式 */
 #endif
 #ifdef LORA_USE_AUX
@@ -200,4 +224,56 @@ void LoRa_OnRxByte(void)    /* USART1 收到 1 byte 時呼叫 */
         rx_head = next;
     }
     HAL_UART_Receive_IT(LORA_UART, &rx_byte, 1);   /* 重掛，持續接收 */
+}
+
+/* ══════════════════════════════════════════════════════
+ * 換頻（設定模式 M0=1,M1=1 → 寫 REG2 頻道 → 回透傳）
+ *
+ * E22-900T22D：實際頻率 = 850.125 MHz + CH(MHz)，CH72 = 922.125 MHz（現用）。
+ * 命令 C0 05 01 <CH>：從暫存器位址 05H 起寫 1 byte，C0＝寫入並保存（斷電不失效）。
+ * 回應 C1 05 01 <CH>。
+ *
+ * ⚠ 這段會短暫阻塞（~200ms：模式切換等待 + UART 阻塞收發）。只允許在
+ *   FLIGHT_IDLE 呼叫——飛行中停掉遙測接收 200ms 不可接受。呼叫端負責把關。
+ * ══════════════════════════════════════════════════════ */
+int LoRa_SetChannel(uint8_t ch)
+{
+#ifndef LORA_MODE_PINS
+    (void)ch;
+    return -2;      /* 硬體未改線：M0/M1 仍接地，無法進設定模式 */
+#else
+    uint8_t cmd[4]  = { 0xC0, 0x05, 0x01, ch };
+    uint8_t resp[4] = { 0 };
+    int ret = -1;
+    uint32_t t0;
+
+    /* 停 IT 接收：設定模式的回應要用阻塞式讀，兩者不能並存 */
+    HAL_UART_AbortReceive_IT(LORA_UART);
+
+    /* 進設定模式（M0=1, M1=1），等 AUX 回到閒置 */
+    HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_SET);
+    HAL_Delay(20);
+    t0 = HAL_GetTick();
+    while (!lora_aux_idle() && (HAL_GetTick() - t0) < 100) { }
+
+    if (HAL_UART_Transmit(LORA_UART, cmd, sizeof(cmd), 200) == HAL_OK) {
+        if (HAL_UART_Receive(LORA_UART, resp, sizeof(resp), 500) == HAL_OK) {
+            /* 回應必須是 C1 05 01 <寫進去的 ch>，否則視為失敗 */
+            if (resp[0] == 0xC1 && resp[1] == 0x05 && resp[3] == ch) ret = 0;
+        }
+    }
+
+    /* 回透傳模式（M0=0, M1=0），等 AUX 閒置後重掛 IT 接收 */
+    HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_RESET);
+    HAL_Delay(20);
+    t0 = HAL_GetTick();
+    while (!lora_aux_idle() && (HAL_GetTick() - t0) < 100) { }
+
+    rx_head = rx_tail = 0;   /* 丟掉設定模式殘留的位元組 */
+    tx_busy = 0;
+    LoRa_StartRx();
+    return ret;
+#endif
 }

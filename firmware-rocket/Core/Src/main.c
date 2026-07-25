@@ -652,6 +652,40 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     reply(rb);
     return;
   }
+  /* SETCH：換 LoRa 頻道（#CMD:SETCH_72# → 922.125MHz）。
+   * 規範 4.1.4.3 要求決賽前完成不同頻道通訊測試、避開他隊同頻干擾。
+   * ⚠ 換頻會阻塞約 200ms 且期間收不到遙測 → 只在 IDLE 受理（此閘不因
+   *   REMOTE_CMD_UNRESTRICTED 而放寬）。且換完後地面端也必須跟著換，
+   *   否則這塊板就此失聯——所以先回報再執行，讓操作員至少收到最後一句。*/
+  if (strncmp(line, "#CMD:SETCH_", 11) == 0) {
+    if (flight_state != FLIGHT_IDLE) {
+      reply("MSG WARN REJECT setch only allowed in IDLE\r\n");
+      return;
+    }
+    const char *p = line + 11;
+    uint32_t ch = 0; int nd = 0;
+    while (*p >= '0' && *p <= '9') { ch = ch * 10u + (uint32_t)(*p - '0'); p++; nd++; }
+    if (nd == 0 || *p != '#' || ch > 80u) {   /* 900T22D 有效頻道 0..80 */
+      reply("MSG WARN REJECT bad channel - use #CMD:SETCH_72# (0-80)\r\n");
+      return;
+    }
+    snprintf(rb, sizeof(rb),
+      "MSG WARN Switching to CH%lu (%.3f MHz) - ground must follow NOW\r\n",
+      (unsigned long)ch, 850.125f + (float)ch);
+    reply(rb);
+    HAL_Delay(50);                     /* 讓上面那句先送出去 */
+    int r = LoRa_SetChannel((uint8_t)ch);
+    if (r == 0) {
+      snprintf(rb, sizeof(rb), "MSG SUCCESS CH%lu active (%.3f MHz)\r\n",
+               (unsigned long)ch, 850.125f + (float)ch);
+    } else if (r == -2) {
+      snprintf(rb, sizeof(rb), "MSG ERROR SETCH unsupported - M0/M1 not wired to MCU\r\n");
+    } else {
+      snprintf(rb, sizeof(rb), "MSG ERROR SETCH failed - module did not confirm\r\n");
+    }
+    reply(rb);
+    return;
+  }
   /* ── 遠端緊急命令（2026-07-20，對接 rocket_side_requirements.md）────
    * 地面站打 dpl/abg → 自動下傳隊伍秘鑰字串、burst 4 次×50ms（半雙工避障，
    * 重複命中由下方 already-* 檢查吸收）。單發單向設計論證見 git 歷史

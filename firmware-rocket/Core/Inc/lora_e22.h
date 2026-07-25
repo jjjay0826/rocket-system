@@ -44,4 +44,9 @@ int  LoRa_Receive(uint8_t *buf, uint8_t max_len);
 void LoRa_OnTxDone(void);   /* USART1 TX 完成 */
 void LoRa_OnRxByte(void);   /* USART1 收到 1 byte */
 
+/* 換頻：實際頻率 = 850.125MHz + ch（E22-900T22D）。ch=72 → 922.125MHz（現用）。
+ * 回 0=成功、-1=模組無回應或回應不符、-2=硬體未接 M0/M1（LORA_MODE_PINS 未定義）。
+ * ⚠ 阻塞約 200ms 且期間收不到遙測 → 只可在地面 FLIGHT_IDLE 呼叫。 */
+int  LoRa_SetChannel(uint8_t ch);
+
 #endif /* __LORA_E22_H */
