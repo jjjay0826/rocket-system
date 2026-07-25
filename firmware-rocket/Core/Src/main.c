@@ -119,6 +119,27 @@ extern SPI_HandleTypeDef hspi2;
 
 /* USER CODE BEGIN PV */
 
+/* ── pyro 電源監測 ADC（PB1=保險絲後端、PB0=arming 開關後端）─────────────
+ * 全部寫在 USER CODE 區塊內（含 GPIO/ADC 初始化），CubeMX regenerate 不會蓋掉。
+ * 分壓 22k/10k：8.4V(2S 滿電) → 2.63V，安全落在 3.3V 以下。
+ *  PB1(IN9)：保險絲是否熔斷。誤觸發時電流走 safety shunt 燒斷保險絲＝點火頭
+ *            沒被點著（人安全），但整條 pyro 電源同時死亡——發射台上外觀看
+ *            不出來，飛上去才發現開不了傘。此值 0V 即為熔斷證據。
+ *  PB0(IN8)：arming 開關後端＝「已武裝」的實體證據。滿足競賽規範 4.6.7
+ *            「驗證啟動狀態時人員無需靠近火箭 100mm 內（可透過電腦連線確認）」。
+ *  ※ 純量測、不驅動任何東西：讀錯也不會讓 pyro 走火，安全仍由機械 arming
+ *     開關實體斷路提供（規範 4.6.3 要求的第 2 個「獨立」事件）。 */
+static uint8_t  pyro_adc_ok = 0;      /* ADC 初始化成功旗標 */
+static float    v_fuse      = -1.0f;  /* PB1 保險絲後端電壓（-1=尚未量測）*/
+static float    v_arm       = -1.0f;  /* PB0 arming 開關後端電壓 */
+static uint32_t t_pyro_adc  = 0;      /* 上次量測時刻（1Hz 足夠，電壓變化慢）*/
+
+/* 分壓還原倍率：(R1+R2)/R2 = (22k+10k)/10k = 3.2 */
+#define PYRO_DIV_RATIO   ((22000.0f + 10000.0f) / 10000.0f)
+/* 出廠校正的 VREFINT 原始值（3.3V 下量得），用來反推「現在 VDDA 到底幾伏」。
+ * 直接假設 3.3V 會帶進穩壓器 ±1.5% 誤差；判斷熔斷無妨，看電池餘量就會偏。*/
+#define VREFINT_CAL_ADDR ((uint16_t*)0x1FFF7A2AU)
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -129,6 +150,90 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/* ── pyro 電源監測 ADC 實作（直接暫存器操作，不經 HAL ADC 模組）─────────
+ * ★ 為什麼不用 HAL：本專案 stm32f4xx_hal_conf.h 的 HAL_ADC_MODULE_ENABLED
+ *   是註解掉的（CubeMX 專案沒啟用 ADC），呼叫 HAL_ADC_* 會直接編譯失敗。
+ *   改用暫存器後整個功能自足於 USER CODE 區塊：不必改 hal_conf.h、不必動
+ *   .ioc，CubeMX regenerate 也不會把這功能弄掉。ADC 暫存器本身很單純。
+ * 時鐘：PCLK2 = 84MHz，ADCPRE=/4 → 21MHz（F411 上限 36MHz）。
+ *       112+12 cycles ÷ 21MHz ≈ 5.9us/次。 */
+#define ADC_SMP_112CYC   5U   /* 取樣時間欄位編碼：101 = 112 cycles */
+#define ADC_CH_FUSE      9U   /* PB1 */
+#define ADC_CH_ARM       8U   /* PB0 */
+#define ADC_CH_VREFINT  17U
+
+/* PB0/PB1 設為類比輸入 + 啟用 ADC1。失敗時 pyro_adc_ok=0，量測值維持 -1
+ * （遙測送 -1 = 「沒有量測能力」，與「量到 0V＝熔斷」明確區分）。*/
+static void PyroADC_Init(void)
+{
+  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN;
+  RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
+
+  /* PB0/PB1 → 類比模式（MODER = 0b11），只動這兩支腳的欄位 */
+  GPIOB->MODER |= (3U << (0U * 2U)) | (3U << (1U * 2U));
+
+  ADC->CCR = (ADC->CCR & ~ADC_CCR_ADCPRE_Msk) | (1U << ADC_CCR_ADCPRE_Pos); /* /4 */
+  ADC->CCR |= ADC_CCR_TSVREFE;      /* 開內部參考電壓通道 */
+
+  ADC1->CR1 = 0;                    /* 12-bit、不掃描 */
+  ADC1->CR2 = 0;                    /* 右對齊、單次轉換、軟體觸發 */
+  ADC1->SQR1 = 0;                   /* 序列長度 = 1 */
+
+  /* 取樣時間：SMPR2 管 ch0-9、SMPR1 管 ch10-18 */
+  ADC1->SMPR2 = (ADC1->SMPR2 & ~((7U << (ADC_CH_ARM * 3U)) | (7U << (ADC_CH_FUSE * 3U))))
+              | (ADC_SMP_112CYC << (ADC_CH_ARM * 3U))
+              | (ADC_SMP_112CYC << (ADC_CH_FUSE * 3U));
+  ADC1->SMPR1 = (ADC1->SMPR1 & ~(7U << ((ADC_CH_VREFINT - 10U) * 3U)))
+              | (ADC_SMP_112CYC << ((ADC_CH_VREFINT - 10U) * 3U));
+
+  ADC1->CR2 |= ADC_CR2_ADON;        /* 上電 */
+  HAL_Delay(1);                     /* ADC + VREFINT 穩定時間（需 >10us）*/
+  pyro_adc_ok = 1;
+}
+
+/* 單通道取樣。112 cycles：分壓源阻抗 22k∥10k≈6.9k 偏高，取樣電容要夠時間
+ * 充飽，短取樣時間會讀出偏低值。迴圈上限保護：轉換僅 ~6us，這裡給約兩個
+ * 數量級餘裕就跳出，避免 ADC 異常時卡死主迴圈（開傘狀態機不能停）。*/
+static uint16_t pyro_adc_raw(uint32_t channel)
+{
+  uint32_t guard = 100000U;
+  if (!pyro_adc_ok) return 0;
+  ADC1->SQR3 = channel & 0x1FU;
+  ADC1->SR  &= ~ADC_SR_EOC;
+  ADC1->CR2 |= ADC_CR2_SWSTART;
+  while (!(ADC1->SR & ADC_SR_EOC) && --guard) { __NOP(); }
+  if (!guard) return 0;
+  return (uint16_t)(ADC1->DR & 0x0FFFU);
+}
+
+/* 用內部參考電壓反推實際 VDDA（穩壓器不會剛好 3.300V）*/
+static float pyro_adc_vdda(void)
+{
+  uint16_t cal = *VREFINT_CAL_ADDR;
+  uint16_t raw = pyro_adc_raw(ADC_CH_VREFINT);
+  if (raw == 0 || cal == 0 || cal == 0xFFFF) return 3.3f;   /* 校正值異常→退回標稱 */
+  return 3.3f * (float)cal / (float)raw;
+}
+
+/* 讀一路分壓並還原成電池端真實電壓 */
+static float pyro_read_volt(uint32_t channel, float vdda)
+{
+  if (!pyro_adc_ok) return -1.0f;
+  uint16_t raw = pyro_adc_raw(channel);
+  return ((float)raw / 4095.0f) * vdda * PYRO_DIV_RATIO;
+}
+
+/* 1Hz 更新兩路電壓。電壓變化很慢、熔斷是一次性事件，不需要跟著 100Hz 主迴圈。*/
+static void PyroADC_Poll(uint32_t now)
+{
+  if (!pyro_adc_ok) return;
+  if (now - t_pyro_adc < 1000UL) return;
+  t_pyro_adc = now;
+  float vdda = pyro_adc_vdda();
+  v_fuse = pyro_read_volt(ADC_CH_FUSE, vdda);   /* PB1 */
+  v_arm  = pyro_read_volt(ADC_CH_ARM,  vdda);   /* PB0 */
+}
 
 /* ---- 飛行狀態機 ---- */
 typedef enum {
@@ -694,6 +799,9 @@ int main(void)
   HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_RESET);  /* 7V 發火① PA0 */
   HAL_GPIO_WritePin(FIRE_7V_2_GPIO_Port, FIRE_7V_2_Pin, GPIO_PIN_RESET);  /* 7V 發火② PA1 (DEPLOY) */
 
+  /* pyro 電源監測 ADC（PB0/PB1）——純量測，不影響任何點火路徑 */
+  PyroADC_Init();
+
   /* ---- SPI2 感測匯流排開機健檢(B 板 VDDIO 鉗位事故的制度化防護)----
    * 背景:匯流排上若有晶片內部電源軌塌陷,訊號腳會被其保護二極體鉗在
    * ~0.5V;SPI 推挽閒置(SCK 恆高)頂著鉗位 = 持續 ~46mA,遠超 GPIO 25mA
@@ -757,7 +865,7 @@ int main(void)
    * CLK: HSE=正常 / HSI-FB=HSE 故障已降級(板子晶振要查!)
    * RST: 上次重啟原因。BROWNOUT/POWER-ON 突然出現=電源瞬斷(撞擊/接觸不良),
    *      IWDG=看門狗(若未啟用卻出現=異常),SOFT=軟體重啟,NRST-PIN=按鍵。*/
-  { char b[160];
+  { char b[224];   /* 160→224：加了 VF/VA 電壓與 FUSE BLOWN 警示 */
     const char *rst =
       __HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST) ? "IWDG" :
       __HAL_RCC_GET_FLAG(RCC_FLAG_WWDGRST) ? "WWDG" :
@@ -767,11 +875,18 @@ int main(void)
       __HAL_RCC_GET_FLAG(RCC_FLAG_BORRST)  ? "BROWNOUT" :
       __HAL_RCC_GET_FLAG(RCC_FLAG_PINRST)  ? "NRST-PIN" : "?";
     __HAL_RCC_CLEAR_RESET_FLAGS();
+    /* 開機立刻量一次 pyro 電源，讓開機報告就能看到保險絲/武裝狀態
+     * （t_pyro_adc 保持 0 → 主迴圈首輪仍會照常更新）*/
+    { float vd = pyro_adc_vdda();
+      v_fuse = pyro_read_volt(ADC_CH_FUSE, vd);
+      v_arm  = pyro_read_volt(ADC_CH_ARM,  vd); }
     snprintf(b, sizeof(b),
-      "MOD: BMP=%d IMU=%d LORA=%d  REF_PRESS=%.2f hPa  CLK=%s  RST=%s%s\r\n",
+      "MOD: BMP=%d IMU=%d LORA=%d  REF_PRESS=%.2f hPa  CLK=%s  RST=%s%s  VF=%.2fV VA=%.2fV%s\r\n",
       mod.bmp585, mod.imu, mod.lora, ref_press,
       clk_hsi_fallback ? "HSI-FB(HSE FAIL!)" : "HSE", rst,
-      bus_clamped ? "  BUS=CLAMPED!(SPI2 Hi-Z)" : "");
+      bus_clamped ? "  BUS=CLAMPED!(SPI2 Hi-Z)" : "",
+      v_fuse, v_arm,
+      (pyro_adc_ok && v_fuse >= 0.0f && v_fuse < 5.0f) ? "  FUSE BLOWN?!" : "");
     cdc_write(b);
     /* PB7(SIG_1) 接地時拉低，禁用 LoRa */
     uint8_t lora_init_disabled = (HAL_GPIO_ReadPin(GPIOB, SIG_1_Pin) == GPIO_PIN_RESET);
@@ -1329,6 +1444,9 @@ int main(void)
      * ★ 非阻塞架構：SendAsync 立即返回，PollTx 每輪迴圈輪詢一次
      *   TX airtime（~50-250ms）期間主迴圈持續執行，開傘狀態機不中斷
      * ═══════════════════════════════════════════════════════════════ */
+    /* pyro 電源監測（內部自帶 1Hz 節流）*/
+    PyroADC_Poll(now);
+
     if (now - t_lora >= 500) {
       t_lora = now;
 
@@ -1352,21 +1470,25 @@ int main(void)
           uint8_t mod_hex = (mod.bmp585 << 3) | (mod.imu << 2) | (mod.lora << 1) | (mod.sdcard << 0);
           uint8_t pyro_hex = (cond_A << 3) | (ca_eff << 2) | (cond_B << 1) | (cb_eff << 0);
 
+          /* VF=保險絲後端電壓、VA=arming 開關後端電壓（-1.00 = ADC 不可用）。
+           * 地面端以正則 key-value 解析，新欄位向後相容（舊版解析器直接忽略）。*/
           if (gd.valid) {
             lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
-              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:1,%u C:%X LAT%+0.5f LON%+0.5f\r\n",
+              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:1,%u C:%X VF%.2f VA%.2f LAT%+0.5f LON%+0.5f\r\n",
               (unsigned long)now, ax, ay, az,
               gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
               press, rel_alt, kf2_h, kf2_v, total_g,
               (int)flight_state, mod_hex, (unsigned)gd.num_sats, pyro_hex,
+              v_fuse, v_arm,
               gd.latitude, gd.longitude);
           } else {
             lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
-              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:0,0 C:%X\r\n",
+              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:0,0 C:%X VF%.2f VA%.2f\r\n",
               (unsigned long)now, ax, ay, az,
               gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
               press, rel_alt, kf2_h, kf2_v, total_g,
-              (int)flight_state, mod_hex, pyro_hex);
+              (int)flight_state, mod_hex, pyro_hex,
+              v_fuse, v_arm);
           }
 
           if (lora_n > 0 && lora_n < (int)sizeof(lora_pkt)) {
