@@ -165,10 +165,14 @@ void SystemClock_Config(void);
  *   .ioc，CubeMX regenerate 也不會把這功能弄掉。ADC 暫存器本身很單純。
  * 時鐘：PCLK2 = 84MHz，ADCPRE=/4 → 21MHz（F411 上限 36MHz）。
  *       112+12 cycles ÷ 21MHz ≈ 5.9us/次。 */
-#define ADC_SMP_112CYC   5U   /* 取樣時間欄位編碼：101 = 112 cycles */
+#define ADC_SMP_112CYC   5U   /* 取樣時間欄位編碼：101 = 112 cycles → 5.33us @21MHz */
+#define ADC_SMP_480CYC   7U   /* 111 = 480 cycles → 22.9us @21MHz */
 #define ADC_CH_FUSE      9U   /* PB1 */
 #define ADC_CH_ARM       8U   /* PB0 */
 #define ADC_CH_VREFINT  17U
+#define ADC_RAW_INVALID 0xFFFFU  /* 轉換失敗（≠ 量到 0V，兩者不可混為一談）*/
+
+static uint16_t pyro_adc_raw(uint32_t channel);   /* 開機自檢要先用到 */
 
 /* PB0/PB1 設為類比輸入 + 啟用 ADC1。失敗時 pyro_adc_ok=0，量測值維持 -1
  * （遙測送 -1 = 「沒有量測能力」，與「量到 0V＝熔斷」明確區分）。*/
@@ -195,12 +199,25 @@ static void PyroADC_Init(void)
   ADC1->SMPR2 = (ADC1->SMPR2 & ~((7U << (ADC_CH_ARM * 3U)) | (7U << (ADC_CH_FUSE * 3U))))
               | (ADC_SMP_112CYC << (ADC_CH_ARM * 3U))
               | (ADC_SMP_112CYC << (ADC_CH_FUSE * 3U));
+  /* ★VREFINT 必須用 480 cycles：F411 datasheet 規定內部參考電壓的最小取樣
+   *   時間 TS_vrefint = 10us，而 112 cycles 在 21MHz 下只有 5.33us —— 取樣
+   *   電容充不飽 → 讀值偏低 → VDDA 被高估 → 兩路電壓一起被放大。
+   *   480 cycles = 22.9us，符合規格。外部分壓走 112 cycles 即可（源阻抗
+   *   6.9k 遠低於內部參考的等效阻抗）。*/
   ADC1->SMPR1 = (ADC1->SMPR1 & ~(7U << ((ADC_CH_VREFINT - 10U) * 3U)))
-              | (ADC_SMP_112CYC << ((ADC_CH_VREFINT - 10U) * 3U));
+              | (ADC_SMP_480CYC << ((ADC_CH_VREFINT - 10U) * 3U));
 
   ADC1->CR2 |= ADC_CR2_ADON;        /* 上電 */
   HAL_Delay(1);                     /* ADC + VREFINT 穩定時間（需 >10us）*/
-  pyro_adc_ok = 1;
+
+  /* ★開機自檢：ADON 寫下去不代表 ADC 真的會動。先試轉一次 VREFINT，讀值
+   *   落在合理帶內才認定可用。否則 pyro_adc_ok 恆為 1，任何轉換失敗都會
+   *   被下游當成「量到 0V」＝謊報保險絲熔斷。
+   *   VREFINT 標稱 1.21V → 1.21/3.3*4095 ≈ 1500 counts；連同 ±3% 元件公差
+   *   與 VDDA 漂移取寬帶 1200~1900，只求排除「完全沒在動」的情況。*/
+  pyro_adc_ok = 1;                  /* 暫時設 1，讓下面的試轉能執行 */
+  { uint16_t t = pyro_adc_raw(ADC_CH_VREFINT);
+    pyro_adc_ok = (t != ADC_RAW_INVALID && t > 1200U && t < 1900U) ? 1U : 0U; }
 #endif
 }
 
@@ -209,13 +226,18 @@ static void PyroADC_Init(void)
  * 數量級餘裕就跳出，避免 ADC 異常時卡死主迴圈（開傘狀態機不能停）。*/
 static uint16_t pyro_adc_raw(uint32_t channel)
 {
-  uint32_t guard = 100000U;
-  if (!pyro_adc_ok) return 0;
+  /* guard 5000：480 cycles 的轉換 @21MHz 約 23.4us，本迴圈每圈約 10 cycles
+   * @84MHz → 5000 圈約 0.6ms，仍有 25 倍餘裕，卻把 ADC 故障時的最壞停頓從
+   * 舊值(100000 圈≈12ms/次、每秒三次≈36ms)壓到 1.8ms。*/
+  uint32_t guard = 5000U;
+  if (!pyro_adc_ok) return ADC_RAW_INVALID;
   ADC1->SQR3 = channel & 0x1FU;
   ADC1->SR  &= ~ADC_SR_EOC;
   ADC1->CR2 |= ADC_CR2_SWSTART;
   while (!(ADC1->SR & ADC_SR_EOC) && --guard) { __NOP(); }
-  if (!guard) return 0;
+  /* ★超時回傳專用哨兵值，不可回 0——0 在下游是「量到 0V」＝保險絲熔斷，
+   *   把「量不到」謊報成「熔斷」會讓發射台上的人去換一顆好的保險絲。*/
+  if (!guard) return ADC_RAW_INVALID;
   return (uint16_t)(ADC1->DR & 0x0FFFU);
 }
 
@@ -224,15 +246,17 @@ static float pyro_adc_vdda(void)
 {
   uint16_t cal = *VREFINT_CAL_ADDR;
   uint16_t raw = pyro_adc_raw(ADC_CH_VREFINT);
-  if (raw == 0 || cal == 0 || cal == 0xFFFF) return 3.3f;   /* 校正值異常→退回標稱 */
+  if (raw == ADC_RAW_INVALID || raw == 0 || cal == 0 || cal == 0xFFFF)
+    return 3.3f;                              /* 讀不到→退回標稱值 */
   return 3.3f * (float)cal / (float)raw;
 }
 
-/* 讀一路分壓並還原成電池端真實電壓 */
+/* 讀一路分壓並還原成電池端真實電壓。回 -1 = 讀不到（與 0V 熔斷不同）。*/
 static float pyro_read_volt(uint32_t channel, float vdda)
 {
   if (!pyro_adc_ok) return -1.0f;
   uint16_t raw = pyro_adc_raw(channel);
+  if (raw == ADC_RAW_INVALID) return -1.0f;
   return ((float)raw / 4095.0f) * vdda * PYRO_DIV_RATIO;
 }
 
@@ -729,17 +753,26 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     }
     if (is_dpl || is_abg) {
 #ifndef REMOTE_CMD_UNRESTRICTED
+      /* 拒收訊息一律自報指令名（dpl / abg）：地面站才分得出被拒的是哪一道。
+       * 舊版所有 REJECT 文字都一樣，地面站只能用「頻道」比對 → 一句 RECAL
+       * 的拒收會把待確認的開傘指令一起清掉，並把紅色告警貼上錯誤的標籤。*/
+      const char *act = is_dpl ? "dpl" : "abg";
       /* ── 正式閘門（解禁時整段跳過；復原＝關掉上方 #define）── */
       if (flight_state == FLIGHT_IDLE && !manual_armed) {
-        reply("MSG WARN REJECT IDLE and not armed - ARM first (bench unlock)\r\n");
+        snprintf(rb, sizeof(rb),
+          "MSG WARN REJECT %s - IDLE and not armed - ARM first (bench unlock)\r\n", act);
+        reply(rb);
         return;
       }
       if (flight_state != FLIGHT_IDLE
           && (HAL_GetTick() - launch_time_ms) < 10000UL) {
-        reply("MSG WARN REJECT ascent guard (<10s after launch)\r\n"); return;
+        snprintf(rb, sizeof(rb),
+          "MSG WARN REJECT %s - ascent guard (<10s after launch)\r\n", act);
+        reply(rb); return;
       }
       if (flight_state == FLIGHT_LANDED) {
-        reply("MSG WARN REJECT already landed\r\n"); return;
+        snprintf(rb, sizeof(rb), "MSG WARN REJECT %s - already landed\r\n", act);
+        reply(rb); return;
       }
 #endif
       if (is_dpl) {
@@ -752,7 +785,10 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
         reply("MSG SUCCESS Parachute deployed successfully\r\n");
 #else
         if (flight_state == FLIGHT_DEPLOYING || flight_state == FLIGHT_DEPLOYED) {
-          reply("MSG WARN REJECT already deployed\r\n"); return;
+          /* 語意上這是「傘已經開了」＝好消息，不是失敗。burst 的第 2~4 發
+           * 必然命中這裡；若 SUCCESS 那幀掉包，地面站只會看到這句，因此
+           * 措辭必須讓它把此句當成「已開傘」的證據，而不是紅色的指令失敗。*/
+          reply("MSG WARN REJECT dpl - already deployed (chute is already out)\r\n"); return;
         }
         manual_armed   = 0;
         deploy_time_ms = HAL_GetTick();
