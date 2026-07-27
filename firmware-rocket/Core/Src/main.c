@@ -676,10 +676,18 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     }
     const char *p = line + 11;
     uint32_t ch = 0; int nd = 0;
-    while (*p >= '0' && *p <= '9') { ch = ch * 10u + (uint32_t)(*p - '0'); p++; nd++; }
+    /* 最多吃 3 位數：uint32 累加無溢位之虞（舊版無位數上限，十位以上的輸入
+     * 會回繞，可能落回 0..80 而繞過下面的範圍檢查）。多於 3 位 → 下一個字元
+     * 不是 '#' → 照樣被擋。*/
+    while (*p >= '0' && *p <= '9' && nd < 3) { ch = ch * 10u + (uint32_t)(*p - '0'); p++; nd++; }
     if (nd == 0 || *p != '#' || ch > 80u) {   /* 900T22D 有效頻道 0..80 */
       reply("MSG WARN REJECT bad channel - use #CMD:SETCH_72# (0-80)\r\n");
       return;
+    }
+    /* 合規提示（僅警示、不阻擋——使用者明確要求不加硬限制）：
+     * NCC LP0002 只准 920-925MHz，對應 CH70~74；模組本身可到 0..80。 */
+    if (ch < 70u || ch > 74u) {
+      reply("MSG WARN CH outside 920-925MHz band (legal CH70-74) - proceeding anyway\r\n");
     }
     snprintf(rb, sizeof(rb),
       "MSG WARN Switching to CH%lu (%.3f MHz) - ground must follow NOW\r\n",
