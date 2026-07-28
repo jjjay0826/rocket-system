@@ -293,6 +293,25 @@ static uint32_t      deploy_time_ms = 0;   /* HAL_GetTick() at deploy */
 
 /* 【②】「兩感測器皆死」需持續這麼久才認定（防瞬時雙重失效直接 FORCE-LAUNCH）*/
 #define BOTH_DEAD_HOLD_MS  3000UL
+
+/* 【④】異常重啟後的「墜落救援」──────────────────────────────────────
+ * 飛行中一次 reset（撞擊電源瞬斷，本專案已實證）會把 flight_state 打回 IDLE，
+ * 而重新偵測離架需要 2.5g/200ms —— 引擎早燒完了，滑行段與下墜段都 ≤1g，
+ * 於是**永遠回不到 LAUNCHED**，18 秒備援根本不計時，傘再也不會開。
+ *
+ * ★關鍵洞見：救援不需要任何「撐過斷電的記憶體」。
+ *   RTC 備份暫存器在本板救不了主要情境（VBAT 直接接 VDD，沒有獨立電池，
+ *   撞擊斷電時備份domain 一起斷），SRAM 保留也不可靠。
+ *   但**下降速度是「變化率」，不依賴 ref_press 是否正確**——就算重開機把
+ *   空中的氣壓當成了「地面」（使 rel_alt≈0），d(rel_alt)/dt 仍然忠實反映
+ *   真實的垂直速度。所以：重啟後若持續量到高速下降，那就是一枚正在墜落的
+ *   火箭，直接開傘。
+ * 門檻選擇：傘下降速率依規範 4.2.5 必須 <12 m/s（高空空氣稀薄約 12.7 m/s），
+ *   自由落體則是 30~100 m/s。取 15 m/s 可乾淨分離兩者：已開傘者不會被誤觸，
+ *   自由落體必然命中。地面上要誤觸得從 11 公尺高摔下來。*/
+#define POSTRESET_FALL_VZ  -15.0f   /* 下降快於此（m/s，負值向下）*/
+#define POSTRESET_FALL_MS   1000UL  /* 需持續這麼久 */
+#define POSTRESET_ARM_MS    3000UL  /* 開機後這麼久才開始監看（等濾波器穩定）*/
 /* 【②】推測式離架的撤銷：氣壓計復活且高度確實還在地面，持續這麼久 → 退回 IDLE */
 #define REVOKE_HOLD_MS     3000UL
 #define REVOKE_ALT_M       10.0f
@@ -319,6 +338,9 @@ static uint32_t      both_dead_start = 0;
  * 立刻觸發備援 → 在推力段約 20m、數十 m/s 開傘 → 結構解體。*/
 static uint8_t       launch_inferred = 0;
 static uint32_t      revoke_start    = 0;
+/* 【④】上次不是正常上電（BROWNOUT/SOFT/IWDG/NRST）→ 1，啟用墜落救援監看 */
+static uint8_t       postreset_watch = 0;
+static uint32_t      fall_start_ms   = 0;
 static float         rel_alt        = 0.0f;     /* 相對高度（m） */
 
 /* =========================
@@ -991,6 +1013,11 @@ int main(void)
       __HAL_RCC_GET_FLAG(RCC_FLAG_PORRST)  ? "POWER-ON" :
       __HAL_RCC_GET_FLAG(RCC_FLAG_BORRST)  ? "BROWNOUT" :
       __HAL_RCC_GET_FLAG(RCC_FLAG_PINRST)  ? "NRST-PIN" : "?";
+    /* 【④】不是正常上電 ⇒ 上一輪可能死在空中：武裝墜落救援監看。
+     * POWER-ON 才代表「這是全新的一次通電」，其餘（BROWNOUT/SOFT/IWDG/
+     * NRST-PIN/?）都可能是飛行途中被打斷。誤判成本極低——監看只在
+     * 「持續量到 >15m/s 下降」時才動作，地面上不可能發生。 */
+    postreset_watch = !__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST);
     __HAL_RCC_CLEAR_RESET_FLAGS();
     /* 開機立刻量一次 pyro 電源，讓開機報告就能看到保險絲/武裝狀態
      * （t_pyro_adc 保持 0 → 主迴圈首輪仍會照常更新）*/
@@ -1121,6 +1148,40 @@ int main(void)
         }
       } else {
         land_stable_start = 0;   /* 條件中斷（可能降落傘仍在搖擺），重置計時 */
+      }
+    }
+
+    /* [A2] 【④】異常重啟後的墜落救援：IDLE + 持續高速下降 = 這是一枚正在
+     *      墜落的火箭，上一輪的飛行狀態被 reset 洗掉了。直接開傘。
+     *      條件全部要成立才動作：
+     *        - 上次不是正常上電（postreset_watch）
+     *        - 現在在 IDLE（真正在飛的話狀態機自己會處理）
+     *        - 開機已滿 3 秒（等氣壓濾波器穩定，避免開機瞬間的假速度）
+     *        - 氣壓計活著且可信
+     *        - 下降快於 15 m/s 且持續滿 1 秒
+     *      傘已開的情況下降速率 ≤12.7 m/s，不會命中；自由落體 30~100 m/s 必中。*/
+    if (postreset_watch && flight_state == FLIGHT_IDLE
+        && now > POSTRESET_ARM_MS && mod.bmp585 && !baro_untrusted) {
+      if (vz_baro_lp < POSTRESET_FALL_VZ) {
+        if (fall_start_ms == 0) fall_start_ms = now;
+        else if ((now - fall_start_ms) >= POSTRESET_FALL_MS) {
+          char fb[104];
+          postreset_watch = 0;            /* 一次性 */
+          deploy_time_ms  = now;
+          flight_state    = FLIGHT_DEPLOYING;
+          HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
+          /* 重建最低限度的飛行狀態，讓後續 DEPLOYED→LANDED 與氣囊能正常走 */
+          imu_armed      = 1;
+          launch_time_ms = now;
+          launch_inferred = 0;            /* 這是實測到的墜落，不是推測 */
+          peak_rel_alt   = rel_alt;
+          snprintf(fb, sizeof(fb),
+            "MSG ERROR POST-RESET FALL RESCUE - deploying (vz=%.1f m/s)\r\n", vz_baro_lp);
+          cdc_write(fb);
+          if (mod.lora) LoRa_SendStr(fb);
+        }
+      } else {
+        fall_start_ms = 0;
       }
     }
 
