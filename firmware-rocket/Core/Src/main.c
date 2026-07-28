@@ -285,6 +285,18 @@ static uint32_t      launch_time_ms = 0;   /* HAL_GetTick() at launch */
 static uint32_t      deploy_time_ms = 0;   /* HAL_GetTick() at deploy */
 
 /* ---- 落地偵測參數 ---- */
+/* 【③】氣壓計存活證明：離架後這麼久，高度必須爬過下面的門檻，否則判定
+ * 「讀數合理但不跟隨高度」（氣孔遮蔽）→ baro_untrusted，備援退回純計時。
+ * 動力段 5 秒早已數百公尺，10m 門檻極寬鬆，正常飛行不可能誤判。*/
+#define BARO_PROOF_MS      5000UL   /* 離架後多久開始要求證明 */
+#define BARO_PROOF_MIN_M   10.0f    /* 此時峰值高度至少要有這麼多 */
+
+/* 【②】「兩感測器皆死」需持續這麼久才認定（防瞬時雙重失效直接 FORCE-LAUNCH）*/
+#define BOTH_DEAD_HOLD_MS  3000UL
+/* 【②】推測式離架的撤銷：氣壓計復活且高度確實還在地面，持續這麼久 → 退回 IDLE */
+#define REVOKE_HOLD_MS     3000UL
+#define REVOKE_ALT_M       10.0f
+
 #define LAND_G_DEV_THR    0.15f     /* |total_g - 1g| < 此值視為靜止 */
 #define LAND_ALT_THR      30.0f     /* rel_alt < 此值才考慮落地（排除彈出傘在高空靜止）*/
 #define LAND_STABLE_MS    10000UL   /* 需連續 10s 滿足條件才確認落地 */
@@ -297,6 +309,16 @@ volatile uint8_t     clk_hsi_fallback = 0;
 /* 匯流排健檢旗標：1=開機時 SPI2 三線有線被鉗低（晶片電源軌塌陷/模組未裝），
  * 三線已鎖 analog Hi-Z、感測器初始化跳過。實案：B 板 VDDIO 鉗位 46mA 事故 */
 static uint8_t       bus_clamped    = 0;
+/* 【③】氣壓計讀值不跟隨高度（氣孔遮蔽）→ 1。單向閂鎖，見 BARO_PROOF_MS。*/
+static uint8_t       baro_untrusted = 0;
+/* 【②】「兩感測器皆死」持續成立的起始時刻（0=未成立）。防抖用，見 BOTH_DEAD_HOLD_MS。*/
+static uint32_t      both_dead_start = 0;
+/* 【②】此次離架是「推測」的（降級路徑）還是 2.5g 實測到的。
+ * 推測式離架若被證明是誤判，可由下方邏輯撤銷退回 IDLE——否則 flight_state
+ * 全檔沒有任何回 IDLE 的路徑，一次誤判就永久閂死，真正發射時 peak 一過 20m
+ * 立刻觸發備援 → 在推力段約 20m、數十 m/s 開傘 → 結構解體。*/
+static uint8_t       launch_inferred = 0;
+static uint32_t      revoke_start    = 0;
 static float         rel_alt        = 0.0f;     /* 相對高度（m） */
 
 /* =========================
@@ -1112,6 +1134,56 @@ int main(void)
     if (flight_state == FLIGHT_LAUNCHED) {
       uint32_t t_fly = now - launch_time_ms;
 
+      /* ── 【②】推測式離架的撤銷（2026-07-28）──────────────────────────
+       * flight_state 全檔沒有任何寫回 FLIGHT_IDLE 的路徑，所以一次誤判就
+       * 永久閂死。最陰險的後果不是當下點火（那有 20m 閘門擋著），而是：
+       * 誤判閂住之後 t_fly 一路累積遠超 18 秒，等到**真正發射**時，高度一過
+       * 20m 立刻滿足備援 → 在推力段約 20m、數十 m/s 開傘 → 結構解體。
+       * 這條路徑完全在「電火頭最後接」SOP 的保護範圍之外（那時早已武裝完成）。
+       * 撤銷條件刻意保守：只撤銷「推測」來的離架（2.5g 實測到的絕不撤銷），
+       * 且必須氣壓計活著、可信、高度確實在地面、並持續 3 秒。*/
+      if (launch_inferred && mod.bmp585 && !baro_untrusted
+          && rel_alt < REVOKE_ALT_M && peak_rel_alt < DEPLOY_PEAK_MIN_M) {
+        if (revoke_start == 0) revoke_start = now;
+        else if ((now - revoke_start) >= REVOKE_HOLD_MS) {
+          flight_state    = FLIGHT_IDLE;   /* 唯一一條回得去 IDLE 的路 */
+          imu_armed       = 0;
+          launch_inferred = 0;
+          revoke_start    = 0;
+          both_dead_start = 0;
+          peak_rel_alt    = 0.0f;
+          vz_neg_start_ms = 0;
+          cond_A = 0; cond_B = 0;
+          cdc_write("MSG WARN FORCE-LAUNCH revoked - still on ground, back to IDLE\r\n");
+          if (mod.lora)
+            LoRa_SendStr("MSG WARN FORCE-LAUNCH revoked - still on ground, back to IDLE\r\n");
+        }
+      } else {
+        revoke_start = 0;
+      }
+
+      /* ── 【③】氣壓計「正向存活證明」（2026-07-28）────────────────────
+       * mod.bmp585 只證明「SPI 有回應、讀值落在 800~1100 hPa」，**證明不了
+       * 讀值會跟著高度變化**。氣孔被密封膠/膠帶遮住時（本載具已實證的硬體
+       * 問題），氣壓計會一直回報一個完全合理、卻不隨高度移動的數值：
+       *   - bmp_err_cnt 每筆有效樣本都歸零 → mod.bmp585 永遠是 1
+       *   - 凍結看門狗比對 bit-exact 相同，而 24-bit raw 的雜訊底有數十 LSB
+       *     → 永不觸發
+       *   - peak_rel_alt≈0 → cond_A 死、deploy_bkup 的 20m 閘門也死
+       *   → 三條自動路徑同時失效，火箭以終端速度落海。
+       * 存活證明：離架後 BARO_PROOF_MS 內，高度必須爬過 BARO_PROOF_MIN_M。
+       * 動力段 5 秒早已數百公尺（模擬:burnout 5.9s、apogee 16.6s），若此時
+       * 峰值仍不到 10m，唯一的解釋就是氣壓計沒在跟隨高度 → 標為不可信，
+       * 備援退回純計時。門檻刻意訂得極寬鬆，正常飛行不可能誤判。
+       * 只判定一次（單向閂鎖）：中途復活也不改回，因為已經證明它不可靠。*/
+      if (!baro_untrusted && mod.bmp585 && t_fly > BARO_PROOF_MS
+          && peak_rel_alt < BARO_PROOF_MIN_M) {
+        baro_untrusted = 1;
+        cdc_write("MSG ERROR BARO NOT TRACKING ALTITUDE - backup deploy now time-only\r\n");
+        if (mod.lora)
+          LoRa_SendStr("MSG ERROR BARO NOT TRACKING ALTITUDE - backup deploy now time-only\r\n");
+      }
+
       /* 感測器故障時該條件自動成立，靠另一感測器單獨守門
        * 兩者皆死時不自動成立（避免立即觸發），只靠備援 C */
       int cond_A_eff = mod.bmp585 ? cond_A : (mod.imu ? 1 : 0);
@@ -1127,8 +1199,23 @@ int main(void)
        *   接」SOP 兜底（force-launch(60s) 亦走此路，同受 SOP 保護）。
        * ⚠ 未桌面驗證前勿信賴。需灌假資料驗三情境：①爬升過→20s 觸發 ②沒爬升
        *   →擋住 ③氣壓計標死→退回純計時仍於 20s 觸發。 */
-      int deploy_bkup = (t_fly >= DEPLOY_TB_MS)
-                        && (mod.bmp585 ? (peak_rel_alt >= DEPLOY_PEAK_MIN_M) : 1);
+      /* ── 2026-07-28 全盤審查後的兩處補強（★兩者必須同時存在）──────────
+       * 【②】`!bus_clamped`：開機自檢就判定 SPI2 異常的板子，兩個感測器根本
+       *   沒被初始化過。舊碼的三元閘門在 mod.bmp585=0 時整個打開 → 配合下面
+       *   force-launch 的 60s 計時，一顆鬆掉的焊點就會讓板子在上電 78 秒後
+       *   無條件點燃降落傘、89 秒後點燃氣囊，人還站在旁邊。
+       *   「從來沒初始化成功」≠「飛行中壞掉」：前者代表這塊板沒準備好，
+       *   它該做的是安靜下來報告故障，讓另一塊板完成回收（雙板熱備援的意義），
+       *   而不是憑一個計時器自己點火。遠端手動開傘不受此限，仍可救。
+       * 【③】`!baro_untrusted`：氣孔遮蔽時氣壓計會回報「合理但不變」的讀值，
+       *   mod.bmp585 永遠是 1，於是 peak_rel_alt≈0 把這道 20m 閘門永久關死——
+       *   而 cond_A 同樣需要 peak≥20m，三條自動路徑一起失效，火箭直落。
+       *   baro_untrusted 由下方的「離架後高度必須有變化」存活證明設立，
+       *   一旦判定氣壓計在說謊，備援就退回純計時（原本設計要對付感測器故障
+       *   的行為）。 */
+      int baro_gate_ok = (mod.bmp585 && !baro_untrusted);
+      int deploy_bkup = (t_fly >= DEPLOY_TB_MS) && !bus_clamped
+                        && (baro_gate_ok ? (peak_rel_alt >= DEPLOY_PEAK_MIN_M) : 1);
 
       if (deploy_main || deploy_bkup) {
         deploy_time_ms = now;
@@ -1312,6 +1399,9 @@ int main(void)
               launch_time_ms = now;
               flight_state   = FLIGHT_LAUNCHED;
               is_boosting    = 1;
+              /* 2.5g 實測到的離架＝真憑實據，絕不可被撤銷邏輯退回 IDLE */
+              launch_inferred = 0;
+              revoke_start    = 0;
               /* KF2 從乾淨起點：地面高度=0、速度=0、協方差復位 */
               kf2_h = 0.0f; kf2_v = 0.0f;
               kf2_p00 = 1.0f; kf2_p01 = 0.0f; kf2_p11 = 1.0f;
@@ -1379,10 +1469,30 @@ int main(void)
          */
         int baro_confirms  = (mod.bmp585 && rel_alt > 30.0f);
         /* 兩者皆死：純時間方案，60s 後無條件視為飛行
-         * 地面/空中皆適用，接受 60s 後仍在地面時的誤觸風險 */
-        int both_dead_bkup = (!mod.bmp585 && now > 60000UL);
+         * ── 【②】2026-07-28 兩處收緊 ────────────────────────────────
+         * (a) `!bus_clamped`：開機自檢就判定 SPI2 異常時，IMU 與 BMP 的 init
+         *     都被跳過（兩者同在 SPI2），於是 mod.bmp585=0 恆成立 →舊碼在
+         *     上電 60 秒後無條件宣告離架，再 18 秒點燃降落傘、又 11 秒點燃
+         *     氣囊——全程火箭靜止在桌上/發射台，人就在旁邊。觸發條件只要
+         *     一顆焊點鬆掉，而且每次上電都會重演。
+         *     「開機就沒準備好」的板子不該有自主點火權：它該持續發遙測回報
+         *     故障，由另一塊板完成回收。遠端手動開傘不受影響，仍可救。
+         * (b) 防抖 BOTH_DEAD_HOLD_MS：舊碼是純位準判斷。若 IMU 先死（永久，
+         *     無復活重試），之後 BMP 只要連續 5 筆讀值出界（50Hz 下 100ms）
+         *     就會讓 mod.bmp585=0，而 now 早已 >60000 → **當下立刻**
+         *     FORCE-LAUNCH，連 60 秒緩衝都沒有。要求持續成立才算數。 */
+        if (!bus_clamped && !mod.bmp585 && now > 60000UL) {
+          if (both_dead_start == 0) both_dead_start = now;
+        } else {
+          both_dead_start = 0;   /* 任一條件不成立就重新計時 */
+        }
+        int both_dead_bkup = (both_dead_start != 0)
+                             && ((now - both_dead_start) >= BOTH_DEAD_HOLD_MS);
 
         if (baro_confirms || both_dead_bkup) {
+          /* 由降級路徑「推測」的離架，不是 2.5g 實測到的。記下來，
+           * 讓下方的撤銷邏輯可以在證明是誤判時退回 IDLE。*/
+          launch_inferred = both_dead_bkup ? 1 : 0;
           imu_armed      = 1;
           launch_time_ms = now;
           flight_state   = FLIGHT_LAUNCHED;
@@ -1917,7 +2027,25 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
-    Error_Handler();
+    /* ★HSE 起振失敗 → 降級 HSI 繼續飛，不再 Error_Handler 無限閃燈磚死。
+     *   舊版註解宣稱有降級路徑，實際上那段程式碼只存在於 CSS callback（而 CSS
+     *   從未啟用），開機失敗時走的是 Error_Handler，整塊板完全不動、連遙測都沒有。
+     *   降級後 SYSCLK 一樣是 84MHz（HSI 16MHz /8 ×168 /4），但 HSI 是 RC 振盪器，
+     *   未校準時精度約 ±1%：18 秒備援會有 ±180ms 誤差。相對於 apogee+1.34s 的
+     *   餘裕仍可接受，而且遠勝於整塊板不動。開機報告會標 CLK=HSI-FB 讓你知道。*/
+    RCC_OscInitTypeDef hsi = {0};
+    clk_hsi_fallback = 1;
+    hsi.OscillatorType      = RCC_OSCILLATORTYPE_HSI;
+    hsi.HSIState            = RCC_HSI_ON;
+    hsi.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+    hsi.PLL.PLLState        = RCC_PLL_ON;
+    hsi.PLL.PLLSource       = RCC_PLLSOURCE_HSI;
+    hsi.PLL.PLLM = 8;  hsi.PLL.PLLN = 168;
+    hsi.PLL.PLLP = RCC_PLLP_DIV4;  hsi.PLL.PLLQ = 7;
+    if (HAL_RCC_OscConfig(&hsi) != HAL_OK)
+    {
+      Error_Handler();   /* HSE 與 HSI 都起不來＝晶片層級故障，這才真的沒救 */
+    }
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
@@ -1933,6 +2061,13 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+
+  /* ★啟用時鐘安全系統（CSS）：HSE 在飛行中停振時觸發 NMI → HAL_RCC_CSSCallback
+   *   自動把 PLL 切到 HSI 繼續跑。那個 callback 一直都寫在下面，但**從來沒有人
+   *   呼叫 HAL_RCC_EnableCSS()**，所以整套保護是死碼——飛行中晶振一停，MCU 直接
+   *   停擺，發火腳鎖在當下電位、狀態機停止、遙測也斷。
+   *   已經在 HSI 上（HSE 起振就失敗）時不啟用：CSS 只監看 HSE。*/
+  if (!clk_hsi_fallback) HAL_RCC_EnableCSS();
 }
 
 /* USER CODE BEGIN 4 */
