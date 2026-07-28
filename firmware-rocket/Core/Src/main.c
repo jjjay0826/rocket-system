@@ -638,9 +638,32 @@ static uint32_t         abg_fire_ms = 0;
  * 先到先觸發，另一個被本旗標擋掉）。與遠端 abg 命令並存無害——遠端已
  * 在充氣時 abg_active=1，本函式讓位。 */
 static uint8_t airbag_auto_fired = 0;
+
+/* ── 【①】地面測試模式（2026-07-28）────────────────────────────────────
+ * 背景：桌上做 HELP 教的 ARM → FIRE 測試時，flight_state 會走
+ *   DEPLOYING →(1s)→ DEPLOYED →(靜止 10s)→ LANDED，而 LANDED 會呼叫
+ *   airbag_fire_auto() 點燃 PA0。cmd.c 的警語寫的是單數 "igniter"，操作員
+ *   通常只斷開降落傘那顆，氣囊那顆就這樣被燒掉。
+ * 所以自動充氣加上「這趟真的飛過」的閘門（peak ≥ 20m）。但那樣就違反
+ *   規範 4.5.3「回收系統感測器應在模擬觸發條件下地面測試」——因此提供這個
+ *   明確的測試模式：**刻意**下指令才解除閘門，而且會自動逾時、逾時後恢復。
+ * 手動 /abg（直接拉 PA0）不受任何影響，氣囊電路本身照常可測。 */
+#define GND_TEST_WINDOW_MS  600000UL   /* 10 分鐘後自動失效，忘了關也不會帶上發射台 */
+static uint32_t gnd_test_until = 0;
+static inline uint8_t gnd_test_active(void)
+{
+  return (gnd_test_until != 0) && (HAL_GetTick() < gnd_test_until);
+}
+
 static void airbag_fire_auto(void)
 {
   if (airbag_auto_fired || abg_active) return;
+  /* 【①】沒真的飛過就不自動充氣（桌測防護）。刻意要測時先開地面測試模式。*/
+  if (peak_rel_alt < DEPLOY_PEAK_MIN_M && !gnd_test_active()) {
+    cdc_write("MSG WARN Airbag auto-fire SUPPRESSED - never flew "
+              "(send #CMD:GNDTEST_SALT3310# to test on ground)\r\n");
+    return;
+  }
   airbag_auto_fired = 1;
   abg_active  = 1;
   abg_fire_ms = HAL_GetTick();
@@ -730,6 +753,28 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     snprintf(rb, sizeof(rb), "MSG SUCCESS RECAL ref_press=%.2f hPa (n=%d)\r\n",
              ref_press, pn);
     reply(rb);
+    return;
+  }
+  /* 【①】GNDTEST：地面測試模式，暫時解除「自動充氣需真的飛過」閘門。
+   * 對應規範 4.5.3(回收系統感測器須在模擬觸發條件下地面測試)。
+   * 只在 IDLE 受理;10 分鐘自動失效;偵測到真的離架時立即解除(見離架偵測)。
+   * ⚠ 開著這個模式時，桌上做 ARM→FIRE 會照常在 11 秒後點燃氣囊那一路——
+   *   那正是你要測的東西，但兩顆電火頭都必須先斷開。*/
+  if (strcmp(line, "#CMD:GNDTEST_SALT3310#") == 0) {
+    if (flight_state != FLIGHT_IDLE) {
+      reply("MSG WARN REJECT gndtest only allowed in IDLE\r\n");
+      return;
+    }
+    gnd_test_until = HAL_GetTick() + GND_TEST_WINDOW_MS;
+    snprintf(rb, sizeof(rb),
+      "MSG WARN GROUND TEST MODE ON for %lus - airbag auto-fire UNGATED, "
+      "disconnect BOTH igniters\r\n", (unsigned long)(GND_TEST_WINDOW_MS / 1000UL));
+    reply(rb);
+    return;
+  }
+  if (strcmp(line, "#CMD:GNDTEST_OFF#") == 0) {
+    gnd_test_until = 0;
+    reply("MSG INFO Ground test mode OFF - airbag auto-fire gated again\r\n");
     return;
   }
   /* SETCH：換 LoRa 頻道（#CMD:SETCH_72# → 922.125MHz）。
@@ -1463,6 +1508,8 @@ int main(void)
               /* 2.5g 實測到的離架＝真憑實據，絕不可被撤銷邏輯退回 IDLE */
               launch_inferred = 0;
               revoke_start    = 0;
+              /* 【①】真的飛起來了 → 地面測試模式立即失效，不可能帶著上天 */
+              gnd_test_until  = 0;
               /* KF2 從乾淨起點：地面高度=0、速度=0、協方差復位 */
               kf2_h = 0.0f; kf2_v = 0.0f;
               kf2_p00 = 1.0f; kf2_p01 = 0.0f; kf2_p11 = 1.0f;
@@ -1732,6 +1779,11 @@ int main(void)
           int ca_eff = mod.bmp585 ? cond_A : (mod.imu ? 1 : 0);
           int cb_eff = mod.imu ? cond_B : (mod.bmp585 ? 1 : 0);
           GNSS_Data gd = GNSS_GetData();
+
+          /* 【①】地面測試模式開著時，遙測每一幀都吼一聲——這個模式會解除
+           * 氣囊自動充氣的閘門，絕不能在沒人注意的情況下留著。*/
+          if (gnd_test_active() && !lora_tx_pending)
+            LoRa_SendStr("MSG WARN GROUND TEST MODE ACTIVE - airbag auto-fire ungated\r\n");
 
           uint8_t mod_hex = (mod.bmp585 << 3) | (mod.imu << 2) | (mod.lora << 1) | (mod.sdcard << 0);
           uint8_t pyro_hex = (cond_A << 3) | (ca_eff << 2) | (cond_B << 1) | (cb_eff << 0);
