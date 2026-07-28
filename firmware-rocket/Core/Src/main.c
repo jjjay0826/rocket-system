@@ -134,7 +134,7 @@ extern SPI_HandleTypeDef hspi2;
  *    地面站誤報「保險絲熔斷」，也可能落在高處 → 誤報「已武裝」。兩種都是
  *    比沒有功能更糟的假訊號。停用時遙測送 -1（＝本板無此量測能力），
  *    地面站完全不顯示。硬體裝好後取消註解、重編燒錄即可。 */
-//#define PYRO_ADC_FITTED
+#define PYRO_ADC_FITTED     /* 2026-07-27 啟用：兩組 22k/10k/0.1uF 分壓已焊上 */
 
 static uint8_t  pyro_adc_ok = 0;      /* ADC 初始化成功旗標 */
 static float    v_fuse      = -1.0f;  /* PB1 保險絲後端電壓（-1=尚未量測）*/
@@ -891,6 +891,11 @@ int main(void)
 
   /* pyro 電源監測 ADC（PB0/PB1）——純量測，不影響任何點火路徑 */
   PyroADC_Init();
+
+  /* E22 模式腳（PB7=M0、PB5=M1）立刻拉低＝透傳。必須在此，不能等 LoRa_Init：
+   * gpio.c 把 PB7 設成 input+PULLUP，中間又隔著 USB 枚舉的 1 秒延遲，
+   * 那段時間模組會待在 WOR 發送模式。 */
+  LoRa_ModePinsInit();
 
   /* ---- SPI2 感測匯流排開機健檢(B 板 VDDIO 鉗位事故的制度化防護)----
    * 背景:匯流排上若有晶片內部電源軌塌陷,訊號腳會被其保護二極體鉗在

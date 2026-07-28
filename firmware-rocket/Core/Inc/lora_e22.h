@@ -44,6 +44,11 @@ int  LoRa_Receive(uint8_t *buf, uint8_t max_len);
 void LoRa_OnTxDone(void);   /* USART1 TX 完成 */
 void LoRa_OnRxByte(void);   /* USART1 收到 1 byte */
 
+/* M0/M1 設為輸出並拉低＝透傳模式（冪等）。main() 早期須呼叫一次，避免開機
+ * 到 LoRa_Init 之間 PB7 帶著 CubeMX 的上拉 → 模組短暫進入 WOR 模式。
+ * 未定義 LORA_MODE_PINS 時為空操作。 */
+void LoRa_ModePinsInit(void);
+
 /* 換頻：實際頻率 = 850.125MHz + ch（E22-900T22D）。ch=72 → 922.125MHz（現用）。
  * 回 0=成功、-1=模組無回應或回應不符、-2=硬體未接 M0/M1（LORA_MODE_PINS 未定義）。
  * ⚠ 阻塞約 200ms 且期間收不到遙測 → 只可在地面 FLIGHT_IDLE 呼叫。 */

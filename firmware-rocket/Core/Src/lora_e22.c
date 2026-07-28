@@ -34,7 +34,7 @@ extern UART_HandleTypeDef huart1;
  * 干擾。M0/M1 硬接地時只能拆下模組、接 USB-TTL、開上位機才改得了頻率，
  * 比賽現場來不及；接到 GPIO 後地面站打一行指令就換完。
  */
-//#define LORA_MODE_PINS
+#define LORA_MODE_PINS      /* 2026-07-27 啟用：兩塊板的 M0/M1 已切離 GND 改接 MCU */
 
 #ifdef LORA_MODE_PINS
 #define LORA_M0_PORT  GPIOB
@@ -78,22 +78,34 @@ static volatile uint16_t rx_tail = 0;   /* 主迴圈讀取 */
 static uint8_t  rx_byte;                 /* 單 byte IT 暫存 */
 
 /* ══════════════════════════════════════════════════════ */
+/* M0/M1 設為推挽輸出並拉低＝透傳模式。可重複呼叫（冪等）。
+ * ★必須在 main() 早期就呼叫一次：CubeMX 產生的 gpio.c 把 PB7 設成
+ *   input+PULLUP（它原本是 SIG_1 跳線腳），於是從 MX_GPIO_Init 到 LoRa_Init
+ *   之間（中間夾著 USB 枚舉的 1 秒延遲）M0=1、M1=0 ＝ E22 的 WOR 發送模式。
+ *   那段時間不發資料所以無害，但沒有理由讓模組在開機時待在一個非預期模式。*/
+void LoRa_ModePinsInit(void)
+{
+#ifdef LORA_MODE_PINS
+    GPIO_InitTypeDef gi = {0};
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    /* 先寫再切模式：避免切成輸出的瞬間輸出未定義電位 */
+    HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_RESET);
+    gi.Pin   = LORA_M0_PIN | LORA_M1_PIN;
+    gi.Mode  = GPIO_MODE_OUTPUT_PP;
+    gi.Pull  = GPIO_NOPULL;
+    gi.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &gi);
+    HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_RESET);
+#endif
+}
+
 int LoRa_Init(void)
 {
 #ifdef LORA_MODE_PINS
-    /* M0/M1 就地設為推挽輸出並拉低＝透傳模式（不依賴 .ioc，同 AUX 的做法）*/
-    {
-        GPIO_InitTypeDef gi = {0};
-        __HAL_RCC_GPIOB_CLK_ENABLE();
-        HAL_GPIO_WritePin(LORA_M0_PORT, LORA_M0_PIN, GPIO_PIN_RESET);
-        HAL_GPIO_WritePin(LORA_M1_PORT, LORA_M1_PIN, GPIO_PIN_RESET);
-        gi.Pin   = LORA_M0_PIN | LORA_M1_PIN;
-        gi.Mode  = GPIO_MODE_OUTPUT_PP;
-        gi.Pull  = GPIO_NOPULL;
-        gi.Speed = GPIO_SPEED_FREQ_LOW;
-        HAL_GPIO_Init(GPIOB, &gi);
-    }
-    HAL_Delay(10);   /* 等 E22 進入模式 */
+    LoRa_ModePinsInit();   /* 冪等；早期已呼叫過，這裡確保狀態正確 */
+    HAL_Delay(10);         /* 等 E22 進入模式 */
 #endif
 #ifdef LORA_USE_AUX
     /* PB9 就地 init 為 input+pulldown（不依賴 .ioc，同 LED 的做法）*/
