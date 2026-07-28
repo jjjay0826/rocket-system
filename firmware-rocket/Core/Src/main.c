@@ -1564,8 +1564,8 @@ int main(void)
            * 地面端以正則 key-value 解析，新欄位向後相容（舊版解析器直接忽略）。*/
           if (gd.valid) {
             lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
-              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:1,%u C:%X VF%.2f VA%.2f LAT%+0.5f LON%+0.5f\r\n",
-              (unsigned long)now, ax, ay, az,
+              "T%lu SQ%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:1,%u C:%X VF%.2f VA%.2f LAT%+0.5f LON%+0.5f\r\n",
+              (unsigned long)now, (unsigned long)lora_seq, ax, ay, az,
               gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
               press, rel_alt, kf2_h, kf2_v, total_g,
               (int)flight_state, mod_hex, (unsigned)gd.num_sats, pyro_hex,
@@ -1573,8 +1573,8 @@ int main(void)
               gd.latitude, gd.longitude);
           } else {
             lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
-              "T%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:0,0 C:%X VF%.2f VA%.2f\r\n",
-              (unsigned long)now, ax, ay, az,
+              "T%lu SQ%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:0,0 C:%X VF%.2f VA%.2f\r\n",
+              (unsigned long)now, (unsigned long)lora_seq, ax, ay, az,
               gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
               press, rel_alt, kf2_h, kf2_v, total_g,
               (int)flight_state, mod_hex, pyro_hex,
