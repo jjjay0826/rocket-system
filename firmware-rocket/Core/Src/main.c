@@ -1175,8 +1175,18 @@ int main(void)
        *   （同樣依賴 total_g，故 IMU 全死時落海氣囊不保證，屬硬體風險）。*/
       if (mod.imu && total_g > AIRBAG_IMPACT_G) airbag_fire_auto();
 
-      int land_cond = (fabsf(total_g - 1.0f) < LAND_G_DEV_THR) &&
-                      (rel_alt < LAND_ALT_THR);
+      /* ★落地判斷必須有「活著的感測器」背書（2026-07-28 全盤審查）：
+       * total_g 與 press/rel_alt 宣告在主迴圈之外，感測器一旦死掉，它們就
+       * 停在最後一次成功讀到的值——舊碼直接拿那個死值當證據。
+       * 最糟的組合：氣壓計開機就沒起來（IMU 正常，火箭照常飛、照常開傘），
+       * rel_alt 恆為 0，而傘下等速下降時 total_g≈1.0 —— 兩個條件同時成立，
+       * 10 秒後宣告「落地」，氣囊在數百公尺的空中充氣，而 LANDED 是終點狀態。
+       * 改成任一半都要有活的感測器背書；沒有就不判定落地（fail-safe：寧可
+       * 不宣告落地，也不要在空中放氣囊）。落海氣囊的主路徑是上面那行撞擊
+       * 偵測，它本來就檢查了 mod.imu。*/
+      int g_still   = mod.imu    && (fabsf(total_g - 1.0f) < LAND_G_DEV_THR);
+      int alt_low   = mod.bmp585 && (rel_alt < LAND_ALT_THR);
+      int land_cond = g_still && alt_low;
       if (land_cond) {
         if (land_stable_start == 0) land_stable_start = now;
         if ((now - land_stable_start) >= LAND_STABLE_MS) {
