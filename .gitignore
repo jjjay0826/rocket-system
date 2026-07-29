@@ -42,3 +42,7 @@ Desktop.ini
 #   *.launch               → 除錯啟動設定
 #   Core/ Drivers/ FATFS/ Middlewares/ USB_DEVICE/ Application/ → 原始碼與 HAL
 *.launch
+
+# Python 位元組快取（tools/ 下的分析腳本執行後產生）
+__pycache__/
+*.py[cod]
