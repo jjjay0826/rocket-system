@@ -880,8 +880,12 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     return;
   }
   /* ── 遠端緊急命令（2026-07-20，對接 rocket_side_requirements.md）────
-   * 地面站打 dpl/abg → 自動下傳隊伍秘鑰字串、burst 4 次×50ms（半雙工避障，
-   * 重複命中由下方 already-* 檢查吸收）。單發單向設計論證見 git 歷史
+   * 地面站打 dpl/abg → 自動下傳隊伍秘鑰字串、burst 4 次×700ms（半雙工避障：
+   * 本端 2Hz 發遙測，發送時收不到東西，700ms 間隔確保 4 次至少錯開一次 TX 窗；
+   * 重複命中由下方 already-* 檢查吸收）。★此處原註「50ms」是錯的，實際值見
+   * ground_side/src/core/lora_protocol.py 的 burst_interval=0.7——50ms 會讓
+   * 四發全落在同一個 TX 窗內一起被吃掉，整個避障論證不成立。
+   * 單發單向設計論證見 git 歷史
    * （兩段式=3 段 RF 串聯，緊急時失效率翻倍；明文口令用過即被竊聽）。
    * 閘門（比 .md 的 boottime 10s 閘更嚴）：
    *  - IDLE：需 ARM 中（30s 窗）＝桌測解鎖路徑「ARM → dpl」；未 armed 一律
