@@ -227,8 +227,10 @@ static void process_command_exec(const char *cmd)
     snprintf(sb, sizeof(sb),
              "\r\n=== Status ===\r\n"
              "SD: %s\r\n"
-             "IMU: LSM6DSOTR (SPI3, CS=PB1)\r\n"
-             "Baro: BMP585 (SPI3)\r\n"
+             /* 舊板(imu 專案)是 SPI3/PB1；rocket_v2 兩顆感測器共用 SPI2，
+              * IMU CS=PA8、BMP585 CS=PB12。字串留舊值會誤導故障排除。 */
+             "IMU: LSM6DSOTR (SPI2, CS=PA8)\r\n"
+             "Baro: BMP585 (SPI2)\r\n"
              "GNSS: ATGM336H (UART2, PA3)\r\n\r\n> ",
              logger_is_ready() ? "OK (log.txt open)" : "NOT READY");
     cmd_out(sb);

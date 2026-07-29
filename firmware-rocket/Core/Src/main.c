@@ -78,6 +78,23 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
                                    * 下降穩定 ≈1g、傘擺盪 ≤3g；落水(終端 6.2m/s、
                                    * 減速 ~0.3m)≈6.5g → 5.0 有 margin 又防空中擺盪
                                    * 誤觸。實際落水/落地測試後可校。 */
+/* ── 氣囊撞擊偵測的兩道防誤觸（2026-07-30）───────────────────────────
+ * 【主】ARM_DELAY：開傘衝擊必定超過 5g，而且時序剛好撞在一起。
+ *   開傘瞬間下降速度 6~37 m/s（81 組模擬），傘繩拉伸行程約 0.25m
+ *   → a = v²/2s = 7g ~ 279g。連最溫和的那組都超過門檻。
+ *   而 DEPLOYING→DEPLOYED 只等 DEPLOY_PULSE_MS(1s)，傘完全張開卻要
+ *   0.5~1.5s ——衝擊峰值有相當機率落在 DEPLOYED 之後，直接誤觸，
+ *   氣囊在數百公尺高空充氣，而 airbag_auto_fired 是一次性的：
+ *   真正落海時就沒氣囊了。
+ *   本延遲從「點火時刻」起算（deploy_time_ms），涵蓋整段開傘過程。
+ *   代價：傘下 12m/s × 5s ≈ 少 60m 高度。開傘高度 800~1300m，可忽略；
+ *   落海發生在數十秒之後，完全不受影響。
+ * 【副】IMPACT_MS：濾掉單一樣本毛刺與自旋暫態。落水減速持續約 100ms
+ *   （6.2m/s / 0.3m），IMU 每 10ms 更新一次 → 30ms 需連續 3 筆，抓得到。
+ *   注意這道防護擋不掉開傘衝擊（同為數十~百 ms 等級事件），
+ *   真正擋開傘衝擊的是上面的 ARM_DELAY。 */
+#define AIRBAG_ARM_DELAY_MS 5000UL /* 進 DEPLOYED 後再靜默這麼久才開始監看撞擊 */
+#define AIRBAG_IMPACT_MS      30UL /* total_g 需持續超標這麼久才算撞擊 */
 #define IMU_ARM_G       1.5f      /* IMU 積分啟動閾值 (g)，測試用可調低 */
 #define MAH_2KP         1.0f      /* Mahony 比例增益 × 2 */
 #define MAH_2KI         0.01f     /* Mahony 積分增益 × 2 */
@@ -459,8 +476,22 @@ static int lsm6_init(void)
   lsm6_write_reg(0x12, 0x44); /* CTRL3_C: BDU=1（讀完整組才更新輸出）, IF_INC=1（Burst Read 地址自動遞增）*/
   lsm6_write_reg(0x10, 0x64); /* CTRL1_XL: ODR_XL=416Hz, FS_XL=±16g（火箭推力段不飽和；1g=2048LSB）*/
   lsm6_write_reg(0x11, 0x4C); /* CTRL2_G:  ODR_G=104Hz,  FS_G=2000dps（火箭翻滾不超量程）*/
-  lsm6_write_reg(0x18, 0x38); /* CTRL9_XL: Den_X/Y/Z=1，啟用加速度計三軸輸出 */
-  lsm6_write_reg(0x19, 0x38); /* CTRL10_C: Den_X/Y/Z=1，啟用陀螺儀三軸輸出 */
+  /* ── CTRL9_XL / CTRL10_C 只對 LSM6DS3 世代有效（2026-07-30）──────────
+   * 0x20~0x2D 的資料區整個 LSM6DS 家族相容，但這兩個控制暫存器不相容：
+   *   LSM6DS3/DS3TR-C/DSL (WHO 0x69/0x6A/0x6B)
+   *     CTRL9_XL bit5:3 = Zen/Yen/Xen_XL   → 0x38 = 開啟加速度三軸
+   *     CTRL10_C bit5:3 = Zen/Yen/Xen_G    → 0x38 = 開啟陀螺三軸
+   *     （兩者都是 SW_RESET 後的預設值，這裡等於明示重申）
+   *   LSM6DSO/DSOX (WHO 0x6C)
+   *     每軸開關已取消（三軸恆開），位址改作他用：
+   *     CTRL9_XL 預設 0xE0，寫 0x38 會清掉 DEN_X/Y/Z 並開啟 DEN_XL_EN
+   *     資料戳記；CTRL10_C 只剩 bit5=TIMESTAMP_EN，0x38 還會踩到兩個
+   *     保留位元。→ 這顆晶片不該寫，跳過即可（三軸本來就開著）。
+   * 本載具 BOM 是 LSM6DS3，走上面那條；保留分支讓兩種晶片都能上板。 */
+  if (who <= 0x6B) {
+    lsm6_write_reg(0x18, 0x38); /* CTRL9_XL: Zen/Yen/Xen_XL=1，啟用加速度計三軸輸出 */
+    lsm6_write_reg(0x19, 0x38); /* CTRL10_C: Zen/Yen/Xen_G=1，啟用陀螺儀三軸輸出 */
+  }
   return 0;
 } 
 
@@ -577,6 +608,35 @@ static uint32_t lora_fail    = 0;     /* 失敗傳送次數 */
 static uint32_t main_loop_cnt = 0;     /* 主迴圈計數器 */
 static uint8_t  is_boosting  = 0;     /* 是否處於推力段 (BOOST) */
 #define MOD_ERR_MAX  5               /* 連續 N 次失敗 → 標記死亡 */
+
+/* ══════════════════════════════════════════════════════════════════════
+ * 開傘條件的「有效值」：感測器故障時的退化規則
+ * ══════════════════════════════════════════════════════════════════════
+ * 這條公式原本在三個地方各抄一份（開傘決策、遙測 C 欄、USB 狀態顯示），
+ * 抽成函式，避免日後改一處漏兩處讓遙測說謊。
+ *
+ * ── 2026-07-30：兩個方向的退化風險不對稱，不該再對稱處理 ──────────
+ * 舊碼是 `mod.bmp585 ? cond_A : (mod.imu ? 1 : 0)`，也就是「氣壓計死掉就
+ * 把 A 視為成立，讓 cond_B 單獨決定開傘」。但兩顆感測器的可信度差一個
+ * 數量級：
+ *
+ *   · IMU 死 → cond_A 單獨守門。cond_A 是純氣壓的「低於峰值 10m」，不含
+ *     任何積分，沒有漂移；peak_rel_alt 是單調閂鎖，假高點只會把門檻推高
+ *     ＝讓開傘變晚（安全方向）；而且氣壓路徑有突變閘門(10m/20ms)、防鎖死
+ *     (連拒 25 次強制重錨)、凍結看門狗三層防護。→ 可以信任，維持原樣。
+ *
+ *   · 氣壓死 → cond_B 單獨守門。cond_B 用的 kf2_v 是「IMU 積分 ＋ 氣壓
+ *     修正」的融合值，氣壓一死就失去唯一的修正源。更糟的是滑行段接近自由
+ *     落體，加速度計讀值 ≈0，Mahony 連重力參考都沒有，姿態只剩陀螺積分
+ *     十幾秒。此時 kf2_v 是累積漂移量，不是量測值。用它一票決定開傘，最壞
+ *     情況是在推力段誤觸 → 解體。→ 不可信，關閉主路徑。
+ *
+ * 關掉之後由備援 C 接手：C 在 t_det+18s 觸發，81 組模擬實測落在頂點後
+ * 0.58~3.80s，比一個漂移中的濾波器可預測得多。這是拿「不確定」換「確定」，
+ * 不是失去一條路徑。
+ * 兩顆皆死時兩者都是 0（避免立即觸發），同樣只靠 C。 */
+static inline int deploy_A_eff(void) { return mod.bmp585 ? cond_A : 0; }
+static inline int deploy_B_eff(void) { return mod.imu ? cond_B : (mod.bmp585 ? 1 : 0); }
 
 /* ======================================================
    氣壓計 Kalman 濾波器
@@ -1172,8 +1232,23 @@ int main(void)
        *   遲遲不成立甚至永不成立，純 LANDED 觸發對落海不可靠。撞擊偵測
        *   在觸水那一刻就抓到，即時。airbag_fire_auto 自帶一次性保護。
        * ⚠ 限制：IMU 死時 total_g 不更新→此路失效，只剩下方 LANDED 備援
-       *   （同樣依賴 total_g，故 IMU 全死時落海氣囊不保證，屬硬體風險）。*/
-      if (mod.imu && total_g > AIRBAG_IMPACT_G) airbag_fire_auto();
+       *   （同樣依賴 total_g，故 IMU 全死時落海氣囊不保證，屬硬體風險）。
+       * ★2026-07-30 兩道防誤觸（理由見 AIRBAG_ARM_DELAY_MS 的說明）：
+       *   ① 點火後 DEPLOY_PULSE_MS + ARM_DELAY 內不監看 → 讓開傘衝擊過去
+       *   ② 需連續超標 IMPACT_MS → 濾掉單一毛刺
+       *   桌測模式（gnd_test_active）維持原本的即時觸發，方便地面驗證。*/
+      {
+        static uint32_t impact_start = 0;
+        int watch_armed = gnd_test_active()
+                          || ((now - deploy_time_ms)
+                              >= (DEPLOY_PULSE_MS + AIRBAG_ARM_DELAY_MS));
+        if (watch_armed && mod.imu && total_g > AIRBAG_IMPACT_G) {
+          if (impact_start == 0) impact_start = now;
+          if ((now - impact_start) >= AIRBAG_IMPACT_MS) airbag_fire_auto();
+        } else {
+          impact_start = 0;
+        }
+      }
 
       /* ★落地判斷必須有「活著的感測器」背書（2026-07-28 全盤審查）：
        * total_g 與 press/rel_alt 宣告在主迴圈之外，感測器一旦死掉，它們就
@@ -1300,13 +1375,13 @@ int main(void)
           LoRa_SendStr("MSG ERROR BARO NOT TRACKING ALTITUDE - backup deploy now time-only\r\n");
       }
 
-      /* 感測器故障時該條件自動成立，靠另一感測器單獨守門
-       * 兩者皆死時不自動成立（避免立即觸發），只靠備援 C */
-      int cond_A_eff = mod.bmp585 ? cond_A : (mod.imu ? 1 : 0);
-      int cond_B_eff = mod.imu    ? cond_B : (mod.bmp585 ? 1 : 0);
+      /* 退化規則見 deploy_A_eff/deploy_B_eff 的說明（不對稱：氣壓可單獨守門、
+       * IMU 不可）。三處使用同一組函式，遙測顯示與實際決策保證一致。 */
+      int cond_A_eff = deploy_A_eff();
+      int cond_B_eff = deploy_B_eff();
 
       int deploy_main = (cond_A_eff && cond_B_eff);
-      /* C 備援：t>20s。★地面安全閘門（防組裝/搬運誤判 LAUNCH 後，20s 純計時
+      /* C 備援：t>DEPLOY_TB_MS(18s)。★地面安全閘門（防組裝/搬運誤判 LAUNCH 後，純計時
        *   在地面點火——原本此路無高度確認）：氣壓計活著時，額外要求「曾爬升過
        *   DEPLOY_PEAK_MIN_M(20m)」才准觸發。地面高度永不爬 → peak_rel_alt≈0
        *   → 備援被擋。這與 cond_A 用的是同一道 20m 地面防護閘門，風險姿態一致。
@@ -1349,8 +1424,14 @@ int main(void)
           cdc_write(msg);
           if (mod.lora) LoRa_SendStr(msg);
         } else {
-          cdc_write("MSG SUCCESS Parachute deployed (backup timer T>20s)\r\n");
-          if (mod.lora) LoRa_SendStr("MSG SUCCESS Parachute deployed (backup timer T>20s)\r\n");
+          /* 訊息含實際計時值與診斷數據：舊版寫死「T>20s」，但 DEPLOY_TB_MS
+           * 早在 2026-07-20 改成 18s，發射當天照著字面判讀會誤導。 */
+          char msg[112];
+          snprintf(msg, sizeof(msg),
+            "MSG SUCCESS Parachute deployed (backup timer T>%lus pk=%.1fm now=%.1fm)\r\n",
+            (unsigned long)(DEPLOY_TB_MS / 1000UL), peak_rel_alt, rel_alt);
+          cdc_write(msg);
+          if (mod.lora) LoRa_SendStr(msg);
         }
       }
     }
@@ -1485,6 +1566,36 @@ int main(void)
         if (lsm6_read_raw_LSM6DSOTR(&raw_t,&raw_gx,&raw_gy,&raw_gz,
                                      &raw_ax,&raw_ay,&raw_az) == 0) {
           imu_err_cnt = 0;
+
+          /* ── IMU 凍結看門狗（2026-07-30）─────────────────────────────
+           * 氣壓計早有這道防護，IMU 卻只檢查 SPI 回傳碼——一顆「SPI 正常
+           * 回應但已停止轉換」的晶片完全偵測不到，而後果比氣壓計凍結更糟：
+           *   lin_az 變成常數 → kf2_v 線性發散 → 若該常數扣掉重力為負，
+           *   cond_B 在 1.5 秒後「必然」成立（不是可能，是必然）。
+           * 只比對加速度三軸，不看陀螺：ODR_G=104Hz 與本迴圈 100Hz 讀取率
+           * 太接近，同一筆陀螺樣本被讀兩次是正常現象，會誤判。
+           * ODR_XL=416Hz 遠高於讀取率，每次必為新樣本；±16g 下 1g=2048LSB、
+           * 雜訊底約數 LSB，三軸同時 bit-exact 連續 50 次(0.5s)不可能發生。
+           * 重試上限 3 次（每次 lsm6_init 阻塞約 70ms），仍凍結就判死——
+           * 判死是正確的 fail-safe：IMU 死 → cond_A（純氣壓）單獨守門，
+           * 那條路徑無積分無漂移，可以信任。 */
+          {
+            static int16_t f_ax = 0, f_ay = 0, f_az = 0;
+            static uint8_t f_same = 0, f_retry = 0;
+            if (raw_ax == f_ax && raw_ay == f_ay && raw_az == f_az) {
+              if (++f_same >= 50) {
+                f_same = 0;
+                if (++f_retry > 3) {
+                  mod.imu = 0; imu_ok = 0;
+                  cdc_write("WARN: IMU FROZEN - DEAD\r\n");
+                } else {
+                  lsm6_init();
+                  cdc_write("IMU: FREEZE REINIT\r\n");
+                }
+              }
+            } else { f_same = 0; f_ax = raw_ax; f_ay = raw_ay; f_az = raw_az; }
+          }
+
           ax = (float)raw_ax / IMU_ACC_SCALE;
           ay = (float)raw_ay / IMU_ACC_SCALE;
           az = (float)raw_az / IMU_ACC_SCALE;
@@ -1786,8 +1897,8 @@ int main(void)
            * ───────────────────────────────────────────────────────────────── */
           char lora_pkt[256];
           int lora_n;
-          int ca_eff = mod.bmp585 ? cond_A : (mod.imu ? 1 : 0);
-          int cb_eff = mod.imu ? cond_B : (mod.bmp585 ? 1 : 0);
+          int ca_eff = deploy_A_eff();
+          int cb_eff = deploy_B_eff();
           GNSS_Data gd = GNSS_GetData();
 
           /* 【①】地面測試模式開著時，遙測每一幀都吼一聲——這個模式會解除
@@ -1982,9 +2093,9 @@ int main(void)
       const char *g_flag = imu_armed ? "!" : (g2_count > 0 ? "^" : "");
       /* g_flag："!" 表示 imu_armed 已觸發，"^" 表示 g2_count 正在累積中 */
 
-      /* 計算 cond_A_eff / cond_B_eff 供輸出顯示（與開傘邏輯相同公式）*/
-      int disp_Aeff = mod.bmp585 ? cond_A : (mod.imu ? 1 : 0);
-      int disp_Beff = mod.imu    ? cond_B : (mod.bmp585 ? 1 : 0);
+      /* 計算 cond_A_eff / cond_B_eff 供輸出顯示（與開傘決策同一組函式）*/
+      int disp_Aeff = deploy_A_eff();
+      int disp_Beff = deploy_B_eff();
 
       if (gd.valid)
         n = snprintf(b, sizeof(b),
