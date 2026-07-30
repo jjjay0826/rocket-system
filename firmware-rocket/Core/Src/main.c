@@ -308,9 +308,6 @@ static uint32_t      deploy_time_ms = 0;   /* HAL_GetTick() at deploy */
 #define BARO_PROOF_MS      5000UL   /* 離架後多久開始要求證明 */
 #define BARO_PROOF_MIN_M   10.0f    /* 此時峰值高度至少要有這麼多 */
 
-/* 【②】「兩感測器皆死」需持續這麼久才認定（防瞬時雙重失效直接 FORCE-LAUNCH）*/
-#define BOTH_DEAD_HOLD_MS  3000UL
-
 /* 【④】異常重啟後的「墜落救援」──────────────────────────────────────
  * 飛行中一次 reset（撞擊電源瞬斷，本專案已實證）會把 flight_state 打回 IDLE，
  * 而重新偵測離架需要 2.5g/200ms —— 引擎早燒完了，滑行段與下墜段都 ≤1g，
@@ -347,8 +344,6 @@ volatile uint8_t     clk_hsi_fallback = 0;
 static uint8_t       bus_clamped    = 0;
 /* 【③】氣壓計讀值不跟隨高度（氣孔遮蔽）→ 1。單向閂鎖，見 BARO_PROOF_MS。*/
 static uint8_t       baro_untrusted = 0;
-/* 【②】「兩感測器皆死」持續成立的起始時刻（0=未成立）。防抖用，見 BOTH_DEAD_HOLD_MS。*/
-static uint32_t      both_dead_start = 0;
 /* 【②】此次離架是「推測」的（降級路徑）還是 2.5g 實測到的。
  * 推測式離架若被證明是誤判，可由下方邏輯撤銷退回 IDLE——否則 flight_state
  * 全檔沒有任何回 IDLE 的路徑，一次誤判就永久閂死，真正發射時 peak 一過 20m
@@ -1345,7 +1340,6 @@ int main(void)
           imu_armed       = 0;
           launch_inferred = 0;
           revoke_start    = 0;
-          both_dead_start = 0;
           peak_rel_alt    = 0.0f;
           vz_neg_start_ms = 0;
           cond_A = 0; cond_B = 0;
@@ -1697,35 +1691,41 @@ int main(void)
          * ├──────────┼──────────┼────────────────────────────────┤
          * │ 死亡     │ 正常     │ rel_alt>30m → 確認飛行，降級   │
          * │ 死亡     │ 正常     │ rel_alt≤30m → 地面故障，不觸發 │
-         * │ 死亡     │ 也死亡   │ t>60s → 雙重故障備援           │
+         * │ 死亡     │ 也死亡   │ ★不觸發（見下）                │
          * └──────────┴──────────┴────────────────────────────────┘
+         *
+         * ── 2026-07-30：刪除「兩者皆死 → 60 秒後推測離架」────────────────
+         * 舊碼在兩顆感測器都死掉、且開機超過 60 秒時無條件宣告離架，再 18 秒
+         * 點燃降落傘。問題在於**「開機 60 秒」不是「在高空」的證據**——正常
+         * 流程本來就會在發射台待機遠超 60 秒。它真正的觸發條件其實只有
+         * 「兩顆感測器都死」，而那在地面同樣會發生：BMP585 與 IMU 共用 SPI2，
+         * 而 SPI2 焊點是本載具已實證的弱點（室外飛測 BMP 間歇、敲擊可重現）。
+         * 在發射台曝曬、風吹、震動越久，掉出來的機會越大 → 78 秒後火箭靜止
+         * 在架上點火，人可能還在旁邊。
+         *
+         * 而它保護的情境窄到近乎不存在：本區塊的外層條件是
+         * `flight_state == FLIGHT_IDLE && !imu_armed`，也就是**還沒偵測到離架**。
+         *   · 兩顆在離架「前」死 → 火箭在地上，本來就不該推測
+         *   · 兩顆在離架「後」死 → imu_armed 早已是 1、flight_state 早已
+         *     LAUNCHED → 這段程式碼根本不會被評估
+         * 唯一還能用到它的，是「兩顆感測器在離架的同一個 200ms 窗內同時死掉」
+         * 這個巧合。用地面誤點火的風險去換這個，不划算。
+         *
+         * 兩顆全滅時的真正冗餘是**雙板完全獨立熱備援**（另一塊板照常完成回收），
+         * 不是同一塊板憑一個計時器自己猜。遠端手動開傘也不受影響，仍可救。
+         * （BOTH_DEAD_HOLD_MS 與 both_dead_start 一併移除；bus_clamped 仍在別處使用。）
          */
         int baro_confirms  = (mod.bmp585 && rel_alt > 30.0f);
-        /* 兩者皆死：純時間方案，60s 後無條件視為飛行
-         * ── 【②】2026-07-28 兩處收緊 ────────────────────────────────
-         * (a) `!bus_clamped`：開機自檢就判定 SPI2 異常時，IMU 與 BMP 的 init
-         *     都被跳過（兩者同在 SPI2），於是 mod.bmp585=0 恆成立 →舊碼在
-         *     上電 60 秒後無條件宣告離架，再 18 秒點燃降落傘、又 11 秒點燃
-         *     氣囊——全程火箭靜止在桌上/發射台，人就在旁邊。觸發條件只要
-         *     一顆焊點鬆掉，而且每次上電都會重演。
-         *     「開機就沒準備好」的板子不該有自主點火權：它該持續發遙測回報
-         *     故障，由另一塊板完成回收。遠端手動開傘不受影響，仍可救。
-         * (b) 防抖 BOTH_DEAD_HOLD_MS：舊碼是純位準判斷。若 IMU 先死（永久，
-         *     無復活重試），之後 BMP 只要連續 5 筆讀值出界（50Hz 下 100ms）
-         *     就會讓 mod.bmp585=0，而 now 早已 >60000 → **當下立刻**
-         *     FORCE-LAUNCH，連 60 秒緩衝都沒有。要求持續成立才算數。 */
-        if (!bus_clamped && !mod.bmp585 && now > 60000UL) {
-          if (both_dead_start == 0) both_dead_start = now;
-        } else {
-          both_dead_start = 0;   /* 任一條件不成立就重新計時 */
-        }
-        int both_dead_bkup = (both_dead_start != 0)
-                             && ((now - both_dead_start) >= BOTH_DEAD_HOLD_MS);
-
-        if (baro_confirms || both_dead_bkup) {
+        /* 兩顆全滅的計時推測路徑已於 2026-07-30 移除，理由見上方說明。
+         * 現在唯一的降級離架依據是「氣壓計還活著且說我們在 30 公尺以上」
+         * ——那是**高度**的證據，不是時間的。 */
+        if (baro_confirms) {
           /* 由降級路徑「推測」的離架，不是 2.5g 實測到的。記下來，
-           * 讓下方的撤銷邏輯可以在證明是誤判時退回 IDLE。*/
-          launch_inferred = both_dead_bkup ? 1 : 0;
+           * 讓下方的撤銷邏輯可以在證明是誤判時退回 IDLE。
+           * ★2026-07-30：以前這裡寫 `both_dead_bkup ? 1 : 0`，於是 baro_confirms
+           *   這條路被標成「非推測」而喪失撤銷資格。刪掉 both_dead 之後，本區塊
+           *   剩下的每一條都是推測，一律標 1，讓撤銷邏輯繼續有作用。 */
+          launch_inferred = 1;
           imu_armed      = 1;
           launch_time_ms = now;
           flight_state   = FLIGHT_LAUNCHED;
