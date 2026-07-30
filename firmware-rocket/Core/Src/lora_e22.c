@@ -228,6 +228,14 @@ void LoRa_OnTxDone(void)    /* USART1 TX 完成時呼叫 */
     tx_busy = 0;
 }
 
+/* UART 錯誤（溢位）之後把單 byte 接收重新掛回去。HAL 在 ORE 時會
+ * UART_EndRxTransfer 關掉接收中斷，不重掛就永遠收不到上行指令。*/
+void LoRa_RearmRx(void)
+{
+  HAL_UART_AbortReceive_IT(LORA_UART);          /* 確保狀態回到 READY */
+  HAL_UART_Receive_IT(LORA_UART, &rx_byte, 1);
+}
+
 void LoRa_OnRxByte(void)    /* USART1 收到 1 byte 時呼叫 */
 {
     uint16_t next = (uint16_t)((rx_head + 1) & LORA_RXBUF_MASK);

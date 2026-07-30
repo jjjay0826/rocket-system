@@ -91,7 +91,27 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+  /* ★2026-07-31：故障時重開機，不要停在原地 ────────────────────────────
+   * 原本這裡是 `while (1) {}`，而本專案**沒有啟用任何看門狗**
+   * （HAL_IWDG/WWDG_MODULE_ENABLED 都是註解掉的，.ioc 也沒配）。
+   * 所以飛行中任何一次 hard fault → MCU 永遠卡住 → 傘不開 → 以終端速度墜落。
+   *
+   * 而 main.c 早就寫好了「異常重啟後的墜落救援」：非上電重置會設
+   * postreset_watch=1，開機 3 秒後只要量到持續 >15 m/s 的下降就開傘。
+   * 那條路徑本來就是為了「飛行中被打斷」設計的 —— 但沒有任何東西會讓
+   * hard fault 產生 reset，所以它對最可能的觸發原因完全無效。
+   *
+   * 重開機把那條救援路徑接上了。這個改動不可能讓情況變糟：現況是永遠卡死，
+   * 任何替代方案都比它好。而且它只在 MCU 已經失效時才動作，正常飛行碰不到。
+   *
+   * 沒有改用 IWDG 的理由：要挑一個不會誤觸的逾時值很難 ——
+   * LoRa_SendStr 阻塞 650ms、logger_init 1s、sd_unstick_card 1.1s，
+   * 疊起來得留 3~4 秒餘裕。飛行中誤觸看門狗比 hard fault 更可能發生。
+   *
+   * 代價：故障原因不會留下來。要除錯的話可在此把 SCB->CFSR/HFSR/BFAR
+   * 存到 .noinit 區再重開，本次賽前不做（多的碼＝多的風險）。
+   * 重開後 RST= 欄會顯示 SOFT，開機報告看得到。*/
+  NVIC_SystemReset();
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -106,7 +126,9 @@ void HardFault_Handler(void)
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
-
+  /* 理由同 HardFault_Handler：沒有看門狗，卡住就永遠不會開傘。
+   * 重開機讓 main.c 的墜落救援（postreset_watch + 持續下降偵測）接手。*/
+  NVIC_SystemReset();
   /* USER CODE END MemoryManagement_IRQn 0 */
   while (1)
   {
@@ -121,7 +143,9 @@ void MemManage_Handler(void)
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
-
+  /* 理由同 HardFault_Handler：沒有看門狗，卡住就永遠不會開傘。
+   * 重開機讓 main.c 的墜落救援（postreset_watch + 持續下降偵測）接手。*/
+  NVIC_SystemReset();
   /* USER CODE END BusFault_IRQn 0 */
   while (1)
   {
@@ -136,7 +160,9 @@ void BusFault_Handler(void)
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
-
+  /* 理由同 HardFault_Handler：沒有看門狗，卡住就永遠不會開傘。
+   * 重開機讓 main.c 的墜落救援（postreset_watch + 持續下降偵測）接手。*/
+  NVIC_SystemReset();
   /* USER CODE END UsageFault_IRQn 0 */
   while (1)
   {
@@ -273,6 +299,37 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
     /* USART1 = LoRa E22 TX 完成 → 清 busy（非阻塞 TX）*/
     LoRa_OnTxDone();
   }
+}
+
+/* ★2026-07-31：UART 錯誤後把接收重新掛回去 ──────────────────────────────
+ * HAL 把溢位（ORE）當成 blocking error：stm32f4xx_hal_uart.c 裡
+ *
+ *     if ((huart->ErrorCode & HAL_UART_ERROR_ORE) || dmarequest) {
+ *         UART_EndRxTransfer(huart);      // 關掉 RXNE 中斷
+ *         HAL_UART_ErrorCallback(huart);  // weak，本專案原本沒實作
+ *     }
+ *
+ * 也就是說：一次溢位就讓接收**永久停止**，而且沒有任何錯誤訊息。
+ *   · USART1（LoRa 上行）死掉 → 緊急 /dpl 從此打不進去。而遙測下行是另一個
+ *     方向、還在跑，所以**鏈路看起來完全正常**，要等到按下開傘鈕看到
+ *     UNCONFIRMED 才會發現。
+ *   · USART2（GPS）死掉 → 位置資料中斷。
+ *
+ * 9600 baud 一個 byte 是 1.04ms，要溢位得有超過 1ms 的中斷延遲 —— 飛行中
+ * （USB 拔掉、USART1 優先權 5、沒什麼在搶）機率低，桌測時（USB OTG 優先權 0
+ * 會搶佔）比較高。機率不高但後果嚴重且靜默，而這個回呼只在接收「已經停掉」
+ * 之後才會被叫到，加了不可能讓正常運作變糟。*/
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  /* 清掉黏住的旗標（ORE 要讀 SR 再讀 DR 才會清）*/
+  __HAL_UART_CLEAR_OREFLAG(huart);
+  volatile uint32_t dummy = huart->Instance->SR;
+  dummy = huart->Instance->DR;
+  (void)dummy;
+  huart->ErrorCode = HAL_UART_ERROR_NONE;
+
+  if (huart->Instance == USART1)      LoRa_RearmRx();
+  else if (huart->Instance == USART2) GNSS_RearmRx();
 }
 
 /* USER CODE END 1 */

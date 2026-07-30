@@ -42,7 +42,8 @@ int  LoRa_Receive(uint8_t *buf, uint8_t max_len);
 
 /* ---- ISR hook（由 stm32f4xx_it.c 的 UART 回呼依 instance 呼叫）---- */
 void LoRa_OnTxDone(void);   /* USART1 TX 完成 */
-void LoRa_OnRxByte(void);   /* USART1 收到 1 byte */
+void LoRa_OnRxByte(void);
+void LoRa_RearmRx(void);   /* UART 錯誤後重掛接收（見 stm32f4xx_it.c 的 ErrorCallback）*/
 
 /* M0/M1 設為輸出並拉低＝透傳模式（冪等）。main() 早期須呼叫一次，避免開機
  * 到 LoRa_Init 之間 PB7 帶著 CubeMX 的上拉 → 模組短暫進入 WOR 模式。

@@ -56,6 +56,8 @@ static char pending_cmd[CMD_BUF_SIZE];
  * 靜音自身 2Hz 遙測（避免真假兩股資料混流）。 */
 static volatile uint8_t bridge_mode = 0;
 uint8_t cmd_bridge_active(void) { return bridge_mode; }
+/* 供 main.c 在偵測到離架時強制退出（USB 拔掉後 EXITBRIDGE 就打不進來了）*/
+void cmd_exit_bridge(void) { bridge_mode = 0; }
 
 /* ---- Helper: command output → USB CDC ----------------------------------
  * 舊板 debug 走實體 UART1，曾「UART1+CDC 各送一份」；本板 uart1_write 已
@@ -174,10 +176,40 @@ void cmd_show_help(void)
 /* ======================================================================
  * process_command_exec — runs in main loop (blocking OK here).
  * ====================================================================== */
+/* main.c 提供：只有 FLIGHT_IDLE 才回 1 */
+extern uint8_t flight_is_idle(void);
+
+/* ★2026-07-31：維修指令一律只准在地面靜置時執行 ────────────────────────
+ * 這些指令原本沒有任何飛行狀態檢查，而它們會：
+ *   PINTEST   阻塞主迴圈約 16 秒後 reset
+ *   PINHOLD   阻塞主迴圈約 180 秒後 reset，中途還把 SPI2 腳改成 GPIO/Hi-Z
+ *   READ      逐行讀 SD 最多 10000 行送 USB，USB 忙碌時每 chunk 等 100ms
+ *   CLEAR/TRUNC  SD 檔案操作，可能阻塞
+ *   BUSFLOAT  把感測器匯流排放成 Hi-Z 直到 reset
+ *   BRIDGE    永久靜音本板遙測（只有 USB 打 EXITBRIDGE 或 reset 能退出）
+ * 阻塞期間開傘狀態機、18 秒備援、感測器更新、火工品脈衝收尾**全部停擺**。
+ *
+ * 這些指令只從 USB CDC 進來（cmd_handle_char 唯一的呼叫點是
+ * usbd_cdc_if.c），所以飛行中 USB 拔掉就打不到 —— 但「倒數期間手滑打了
+ * PINHOLD、然後拔線」這個情境是真的，180 秒足以蓋過整段飛行。
+ * 加一道閘門的成本是零。*/
+static int is_maintenance_cmd(const char *c)
+{
+  return strncmp(c, "PINTEST",  7) == 0 || strncmp(c, "PINHOLD", 7) == 0
+      || strncmp(c, "BUSFLOAT", 8) == 0 || strncmp(c, "READ",    4) == 0
+      || strncmp(c, "CLEAR",    5) == 0 || strncmp(c, "TRUNC",   5) == 0
+      || strncmp(c, "BRIDGE",   6) == 0;
+}
+
 static void process_command_exec(const char *cmd)
 {
   if (!cmd || cmd[0] == '\0') {
     cmd_out("> ");
+    return;
+  }
+
+  if (is_maintenance_cmd(cmd) && !flight_is_idle()) {
+    cmd_out("\r\nREJECT: maintenance command only allowed on the ground (IDLE)\r\n> ");
     return;
   }
 

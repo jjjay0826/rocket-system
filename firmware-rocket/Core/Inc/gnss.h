@@ -25,6 +25,7 @@ typedef struct {
 void GNSS_Init(UART_HandleTypeDef *huart);
 void GNSS_Process(void);
 GNSS_Data GNSS_GetData(void);
+void     GNSS_RearmRx(void);       /* UART 錯誤後重掛接收 */
 uint32_t GNSS_GetByteCnt(void);
 uint32_t GNSS_GetLineCnt(void);
 

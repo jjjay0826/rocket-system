@@ -705,6 +705,12 @@ static uint8_t airbag_auto_fired = 0;
  * 手動 /abg（直接拉 PA0）不受任何影響，氣囊電路本身照常可測。 */
 #define GND_TEST_WINDOW_MS  600000UL   /* 10 分鐘後自動失效，忘了關也不會帶上發射台 */
 static uint32_t gnd_test_until = 0;
+/* 給 cmd.c 用：維修指令（PINTEST/PINHOLD/BUSFLOAT/READ/CLEAR/TRUNC/BRIDGE）
+ * 只有在地面靜置時才准跑。它們會阻塞主迴圈 16~180 秒，或永久靜音遙測，
+ * 而開傘狀態機、18 秒備援計時、感測器更新全都在同一個迴圈裡。
+ * flight_state 是 static，所以用函式而不是 extern 變數。*/
+uint8_t flight_is_idle(void) { return (uint8_t)(flight_state == FLIGHT_IDLE); }
+
 static inline uint8_t gnd_test_active(void)
 {
   return (gnd_test_until != 0) && (HAL_GetTick() < gnd_test_until);
@@ -1629,6 +1635,11 @@ int main(void)
               revoke_start    = 0;
               /* 【①】真的飛起來了 → 地面測試模式立即失效，不可能帶著上天 */
               gnd_test_until  = 0;
+              /* ★2026-07-31：BRIDGE 同理。它會把本板自己的遙測完全靜音
+               * （main.c 的 TX 閘門看 cmd_bridge_active()），而原本只有從 USB
+               * 打 EXITBRIDGE 或 reset 能退出 —— USB 拔掉之後就沒救了。
+               * 忘了關就帶上天 = 整場零遙測，而地面站只會看到「沒訊號」。*/
+              cmd_exit_bridge();
               /* KF2 從乾淨起點：地面高度=0、速度=0、協方差復位 */
               kf2_h = 0.0f; kf2_v = 0.0f;
               kf2_p00 = 1.0f; kf2_p01 = 0.0f; kf2_p11 = 1.0f;
@@ -2207,16 +2218,34 @@ int main(void)
         last_state_change_t = now;
       }
       
-      // 偵測下降沿 (1 -> 0, 按下)
+      /* ★2026-07-31：加上閘門 ────────────────────────────────────────────
+       * 原本這裡唯一的條件是「不是 FLIGHT_DEPLOYING」，也就是說在
+       * IDLE / LAUNCHED / DEPLOYED / LANDED **全部**都能觸發，而且是
+       * **同時點燃 PA0（降落傘）與 PA1（氣囊）兩路**。沒有檢查 manual_armed、
+       * 沒有檢查飛行狀態、沒有時間閘門 —— PB6 拉低 50ms 就點火。
+       *
+       * PB6 有內部上拉（gpio.c: GPIO_PULLUP），所以不是浮空；但接線鬆脫碰地、
+       * 連接器振動、焊橋都會滿足條件。人員可能就在箭體旁邊。
+       *
+       * 規範 4.6.3 要求「有人靠近時必須有兩個獨立事件」擋著儲能裝置，
+       * 這條路徑一個都沒有。
+       *
+       * 閘門對齊遠端 dpl/abg 的桌測解鎖路徑：必須在 IDLE、必須先 ARM、
+       * 而且必須在地面測試模式內。三者缺一不可。
+       * 本次飛行不使用這個功能 —— 條件永遠不成立，等同關閉。*/
       if (stable_btn_state == GPIO_PIN_RESET && manual_fire_btn_last == GPIO_PIN_SET) {
-        // 僅在非手動點火期間、且不在飛行開傘點火狀態下允許觸發
-        if (!manual_fire_active && flight_state != FLIGHT_DEPLOYING) {
+        if (!manual_fire_active
+            && flight_state == FLIGHT_IDLE
+            && manual_armed
+            && gnd_test_active()) {
           manual_fire_active = 1;
           manual_fire_start_t = now;
-          // 同時拉高發火通道 1 (PA0) 和通道 2 (PA1)
+          /* 只點降落傘那一路。原本兩路同時拉高，桌測要驗哪一路就分別測，
+           * 沒有理由讓一次誤觸把兩顆電火頭都燒掉。*/
           HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_SET);
-          HAL_GPIO_WritePin(FIRE_7V_2_GPIO_Port, FIRE_7V_2_Pin, GPIO_PIN_SET);
-          cdc_write("*** MANUAL FIRE ACTIVE (0.25s) ***\r\n");
+          cdc_write("*** MANUAL FIRE ACTIVE (0.25s, CH1 only) ***\r\n");
+        } else if (!manual_fire_active) {
+          cdc_write("MANUAL FIRE REJECTED - need IDLE + ARM + GNDTEST\r\n");
         }
       }
       manual_fire_btn_last = stable_btn_state;
@@ -2228,7 +2257,8 @@ int main(void)
           // 若目前並非飛行開傘中，則安全拉低點火腳
           if (flight_state != FLIGHT_DEPLOYING) {
             HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_RESET);
-            HAL_GPIO_WritePin(FIRE_7V_2_GPIO_Port, FIRE_7V_2_Pin, GPIO_PIN_RESET);
+            /* CH2 不在此拉低：ManualDeploy_Poll 的氣囊脈衝也用 PA1，
+             * 在這裡無條件拉低會把正在進行中的氣囊脈衝砍斷。*/
           }
           cdc_write("*** MANUAL FIRE ENDED ***\r\n");
         }

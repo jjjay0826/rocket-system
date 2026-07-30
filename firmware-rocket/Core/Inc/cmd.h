@@ -27,4 +27,7 @@ uint8_t cmd_is_typing(void);
  * main.c mutes its own telemetry so only replayed data goes on air */
 uint8_t cmd_bridge_active(void);
 
+/* 強制退出 BRIDGE（離架偵測時呼叫）*/
+void cmd_exit_bridge(void);
+
 #endif // __CMD_H__

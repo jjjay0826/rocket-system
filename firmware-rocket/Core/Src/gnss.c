@@ -119,6 +119,15 @@ void GNSS_Process(void) {
     HAL_UART_Receive_IT(gps_uart, (uint8_t*)&rx_char, 1);
 }
 
+/* UART 錯誤（溢位）之後把接收重新掛回去。HAL 在 ORE 時會 UART_EndRxTransfer
+ * 關掉接收中斷，不重掛就永遠收不到 NMEA。見 stm32f4xx_it.c 的 ErrorCallback。*/
+void GNSS_RearmRx(void)
+{
+    if (!gps_uart) return;
+    HAL_UART_AbortReceive_IT(gps_uart);
+    HAL_UART_Receive_IT(gps_uart, (uint8_t*)&rx_char, 1);
+}
+
 /* 供 main.c / cmd.c 查詢用 */
 uint32_t GNSS_GetByteCnt(void) { return gnss_byte_cnt; }
 uint32_t GNSS_GetLineCnt(void) { return gnss_line_cnt; }
