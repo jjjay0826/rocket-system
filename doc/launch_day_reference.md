@@ -1,7 +1,8 @@
 # 發射日操作手冊
 
 > 建立 2026-07-27。所有數值皆從程式碼核對而來,非憑記憶。
-> 韌體 `rocket-system@main`、地面站 `rocket_system_ground_side@feat/remote-recal`。
+> 韌體 `rocket-system@main`、地面站 `rocket_system_ground_side@main`。
+> 最後更新 2026-07-30。
 
 ---
 
@@ -11,13 +12,17 @@
 
 | 開關 | 位置 | 現在 | 飛行前必須 |
 |---|---|---|---|
-| `REMOTE_CMD_UNRESTRICTED` | `main.c:616` | **開 🔴** | **必須註解掉** |
-| `PYRO_ADC_FITTED` | `main.c:137` | 關 | 分壓電阻焊好才開 |
-| `LORA_MODE_PINS` | `lora_e22.c:37` | 關 | M0/M1 改線後才開 |
+| `REMOTE_CMD_UNRESTRICTED` | `main.c:738` | **開 🔴** | **必須註解掉** |
+| `PYRO_ADC_FITTED` | `main.c:154` | ✅ 開 | 維持(分壓電阻已焊,2026-07-27) |
+| `LORA_MODE_PINS` | `lora_e22.c:37` | ✅ 開 | 維持(M0/M1 已改線,2026-07-27) |
+
+**只剩第一項要動。**另外兩個已經啟用,不要再關掉——關掉會失去
+保險絲/武裝電壓監測(`VF`/`VA`)與遠端換頻(`/setch`)。
 
 **`REMOTE_CMD_UNRESTRICTED` 開著時,遠端開傘沒有任何閘門**——不需要 ARM、不管飛行狀態、可以無限重複點火。那是桌測用的。開著的版本一開機就會在 USB 和 LoRa 大喊 `UNRESTRICTED MODE - NOT FLIGHT SAFE`,**看到這句話就是不能飛**。
 
-關掉的方法:把 `main.c:616` 的 `#define REMOTE_CMD_UNRESTRICTED` 前面加 `//`,重新編譯燒錄。
+關掉的方法:把 `main.c:738` 的 `#define REMOTE_CMD_UNRESTRICTED` 前面加 `//`,重新編譯燒錄。
+編譯時會噴 `#warning ... NOT FLIGHT SAFE`,**看到那行警告消失才算關掉**。
 
 ⚠ **兩塊板都要燒同一個設定。**
 
@@ -35,7 +40,7 @@ MOD: BMP=1 IMU=1 LORA=1  REF_PRESS=1013.25 hPa  CLK=HSE  RST=POWER-ON  VF=-1.00V
 | `REF_PRESS=` | 950~1030 | 超出 = 氣壓計讀值有問題 |
 | `CLK=` | **HSE** | `HSI-FB` = 晶振故障已降級,**板子要查** |
 | `RST=` | POWER-ON | `BROWNOUT` = 電源瞬斷(接觸不良/撞擊)<br>`IWDG` = 看門狗(異常)<br>`NRST-PIN` = 有人按了重置 |
-| `VF= / VA=` | -1.00 | -1 = ADC 未啟用(正常,硬體還沒焊) |
+| `VF= / VA=` | **7~8.4V** | -1.00 = ADC 沒啟用(分壓已焊,不該再看到 -1)<br>接近 0 = **保險絲熔斷** |
 | 若出現 `BUS=CLAMPED!` | 不該出現 | SPI2 匯流排被鉗位,**立刻斷電查線** |
 | 若出現 `UNRESTRICTED MODE` | 不該出現 | **不能飛,回去關開關** |
 
@@ -376,22 +381,21 @@ T110  頂點1332m   飛行 235s   臨界東風 4.1 m/s  ← 最危險
                 → 橙/紅 = 真的沒訊號
 2. 接 USB 看火箭開機報告 → LORA=0 就是模組問題,不是地面站
 3. 檢查兩個頻道有沒有設成同一個 COM 埠
-4. ★剛剛在 GUI 改過 COM port / 鮑率 / 按過重連嗎?
-   → 有的話很可能中了 sentinel 毒化(約 10% 機率),見下
+4. 剛剛在 GUI 改過 COM port / 鮑率 / 按過重連嗎?
+   → 2026-07-30 之前這會有約 10% 機率讓解析執行緒無聲死亡,已修
 ```
 
-### 🔴 剛改完 COM port 就整個沒資料(但 raw log 一直在長)
+### 改完 COM port 就整個沒資料(但 raw log 一直在長)
 
-**這是已知缺陷,不是你操作錯。**地面站的解析執行緒被殘留的停止訊號殺掉了,
-而且是無聲的——序列埠照讀、檔案照寫,只有畫面不動,連錯誤訊息都沒有。
+**這個缺陷已於 2026-07-30 修掉**(`start()` 每次重建佇列)。若跑的是舊版地面站,
+症狀是:序列埠照讀、raw log 檔案照長,但畫面完全靜止且沒有任何錯誤訊息。
 
 ```
 處置:把該頻道的 backend daemon 視窗【整個關掉】,再重跑 .bat
-     ⚠ 新版 .bat 會偵測 port 還被綁著就跳過,所以舊視窗一定要先關乾淨
-預防:發射當天盡量不要在 GUI 改 COM port。真要改,改完盯著畫面確認有在跳
+     ⚠ .bat 會偵測 port 還被綁著就跳過,所以舊視窗一定要先關乾淨
 ```
 
-判斷方法:raw log 檔案大小一直增加(表示序列埠正常)但 GUI 完全靜止 = 就是這個。
+判斷方法:raw log 檔案大小一直增加(表示序列埠正常)但 GUI 完全靜止。
 
 ### 只有一塊板有訊號
 
@@ -511,5 +515,8 @@ VF8.12 VA7.98 LAT+22.17485 LON+120.89272
   (`ground_side/tests/test_crossrepo_protocol.py`,韌體改格式會當場叫)
 - ~~`telemetry_format.md` 的 ST 表是 12 態~~ → 已改正為 5 態
 - ~~氣囊會被開傘衝擊誤觸~~ → 加了 6 秒 arming 延遲 + 30ms 持續要求
+- ~~地面站 sentinel 毒化(改 COM port 後約 10% 機率遙測無聲中斷)~~ → 已修
+- ~~GUI 階段名稱用的是未實作的 12 態表(ST:2 顯示成 IGNITION)~~ → 已改為 5 態
+- ~~兩顆感測器全死時 60 秒後推測離架~~ → 已刪除(時間不是高度的證據)
 - ~~氣壓計死時由漂移的 IMU 一票決定開傘~~ → 改成關閉主路徑退到備援
 - ~~IMU 凍結(SPI 有回應但停止轉換)偵測不到~~ → 加了凍結看門狗
