@@ -143,5 +143,34 @@ chk("開傘決策式未改動", "int deploy_main = (cond_A_eff && cond_B_eff);" 
 chk("降級規則未改動", "return mod.bmp585 ? cond_A : 0;" in m)
 
 print()
+print("=" * 70)
+print("【7】第二輪審查（lora_e22 / cmd / logger / gnss / cdc_write）")
+print("=" * 70)
+lg = strip_comments((R / "Src/logger.c").read_text(encoding="utf-8"))
+chk("logger 行緩衝放大到裝得下整行 CSV", "char line[288];" in lg,
+    "舊值 128；CSV 一行 135 + 前綴 9 = 144 → 每行都被截斷，連 CRLF 都沒了")
+chk("截斷時會告警", "LINE TRUNCATED" in lg)
+chk("截斷時不寫入（避免無換行的黏行）",
+    lg.index("LINE TRUNCATED") < lg.index("f_write(&file, line"))
+
+gn = strip_comments((R / "Src/gnss.c").read_text(encoding="utf-8"))
+for v in ("gnss_byte_cnt", "gnss_line_cnt", "last_valid_fix_time"):
+    chk(f"{v} 補上 volatile", f"volatile uint32_t {v}" in gn, "ISR 寫、主迴圈讀")
+
+lo = strip_comments((R / "Src/lora_e22.c").read_text(encoding="utf-8"))
+i = lo.index("int LoRa_Send(")
+chk("LoRa_Send 逾時會中止卡住的 IT 傳送",
+    "AbortTransmit_IT" in lo[i:i + 700],
+    "只清 tx_busy 不夠：HAL 的 gState 仍 BUSY，接著的阻塞傳送必回 HAL_BUSY")
+
+mn = strip_comments((R / "Src/main.c").read_text(encoding="utf-8"))
+i = mn.index("size_t remaining = strlen(s);")
+seg = mn[i:i + 900]
+chk("cdc_write 在沒有主機時停止空轉", "cdc_dead" in seg,
+    "VBUS sensing 關閉 → 拔線後 dev_state=SUSPENDED 仍會嘗試傳送，"
+    "每 500ms 燒 80ms")
+chk("有主機時行為不變（成功即歸零）", "cdc_dead = 0;" in seg)
+
+print()
 print("PASS" if not fails else f"FAIL: {fails}")
 sys.exit(1 if fails else 0)

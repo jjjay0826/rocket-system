@@ -5,6 +5,7 @@
  *      Author: user
  */
 #include "logger.h"
+extern void cdc_write(const char *s);   /* main.c 提供 */
 #include "gnss.h"      // 提供 gnss_time
 #include <string.h>
 #include <stdio.h>
@@ -155,7 +156,17 @@ void logger_mark_failed(void)
 }
 
 void logger_write(const char *data) {
-    char line[128];
+    /* ★2026-07-31：128 → 288。main.c 用 char csv[256] 組一行 25 欄的 CSV，
+     * 飛行中典型長度 135 bytes，加上 "[hhmmss] " 前綴 9 bytes = 144，
+     * 最壞（欄位都取滿）164 —— 全部超過舊的 128。
+     *
+     * 後果不只是少幾欄：被截掉的正好是尾端的 condA,condB,peak（開傘決策的
+     * 診斷值）**以及行尾的 \r\n**。沒有換行 → 整個 log.csv 變成一條連續的
+     * 長行，事後根本切不開來分析。
+     *
+     * 256(csv) + 9(前綴) + 2(CRLF) + 1(NUL) = 268，取 288 留餘裕。
+     * 這是主迴圈呼叫的函式，堆疊多 160 bytes 在 128KB RAM 上無感。*/
+    char line[288];
     UINT bw;
     static uint16_t write_count = 0;   /* 偵測寫入次數，每 16 筆才 sync 一次 */
 
@@ -163,7 +174,17 @@ void logger_write(const char *data) {
     if (!sd_ok || logger_reading) return;
 
     // 組合內容格式：[hhmmss] 資料內容
-    snprintf(line, sizeof(line), "[%s] %s\r\n", gnss_time, data);
+    int ln = snprintf(line, sizeof(line), "[%s] %s\r\n", gnss_time, data);
+    if (ln < 0 || ln >= (int)sizeof(line)) {
+        /* 截斷＝行尾 CRLF 沒了＝整份 CSV 黏成一行。日後有人加欄位時要看得到。
+         * 只吼一次，免得每 20ms 洗版把主迴圈拖垮。*/
+        static uint8_t warned = 0;
+        if (!warned) {
+            warned = 1;
+            cdc_write("SD: LINE TRUNCATED - widen logger line[]\r\n");
+        }
+        return;
+    }
 
     // 寫入檔案
     fres = f_write(&file, line, strlen(line), &bw);

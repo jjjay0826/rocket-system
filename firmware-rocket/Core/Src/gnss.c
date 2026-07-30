@@ -17,9 +17,11 @@ static char nmea_buf[100];
 static uint8_t idx = 0;
 
 static GNSS_Data current_data;
-static uint32_t gnss_byte_cnt  = 0;   /* 收到的總 bytes */
-static uint32_t gnss_line_cnt  = 0;   /* 收到的完整行數 */
-static uint32_t last_valid_fix_time = 0; /* 上次成功定位的時間戳 (ms) */
+/* volatile：三個都在 USART2 ISR 裡寫、在主迴圈讀。uint32 在 Cortex-M4 上
+ * 是原子的所以不會撕裂，但沒有 volatile 編譯器可以把讀取提到迴圈外快取起來。*/
+static volatile uint32_t gnss_byte_cnt  = 0;   /* 收到的總 bytes */
+static volatile uint32_t gnss_line_cnt  = 0;   /* 收到的完整行數 */
+static volatile uint32_t last_valid_fix_time = 0; /* 上次成功定位的時間戳 (ms) */
 
 static void gnss_parse(const char *nmea);  /* forward declaration */
 

@@ -143,7 +143,16 @@ int LoRa_Send(const uint8_t *data, uint8_t len)
     if (!data || len == 0) return -1;
     /* 等任何進行中的 IT 傳送結束，避免 HAL busy */
     uint32_t t0 = HAL_GetTick();
-    while (tx_busy) { if (HAL_GetTick() - t0 > LORA_TX_TIMEOUT_MS) { tx_busy = 0; break; } }
+    while (tx_busy) {
+        if (HAL_GetTick() - t0 > LORA_TX_TIMEOUT_MS) {
+            /* ★只把旗標清掉是不夠的：HAL 的 gState 仍是 BUSY_TX，下面那句
+             * 阻塞傳送會直接回 HAL_BUSY，訊息靜默丟失。要真的把它中止掉。
+             * （LoRa_PollTx 有做，但那要等主迴圈跑到，這裡是同步路徑。）*/
+            HAL_UART_AbortTransmit_IT(LORA_UART);
+            tx_busy = 0;
+            break;
+        }
+    }
     return (HAL_UART_Transmit(LORA_UART, (uint8_t*)data, len, 200) == HAL_OK) ? 0 : -1;
 }
 

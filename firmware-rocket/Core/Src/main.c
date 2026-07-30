@@ -377,18 +377,38 @@ void cdc_write(const char *s)
   const uint8_t *p = (const uint8_t*)s;
   size_t remaining = strlen(s);
 
+  /* ★2026-07-31：主機不在時不要空轉 ──────────────────────────────────────
+   * 舊碼每個 64-byte chunk 最多燒 3×5 + 5 = 20ms。USB 拔掉之後這筆開銷不會
+   * 消失：本板關掉了 VBUS sensing，拔線後 dev_state 落在 SUSPENDED(4)，
+   * 而上面的判斷是 `< 3 才 return`，也就是 SUSPENDED 仍會嘗試傳送。
+   * 沒有主機把 IN 端點的資料取走，CDC_Transmit_FS 從第二次起固定回 BUSY
+   * → 每個 chunk 都跑滿重試。500ms 一次的狀態輸出約 200 字元＝4 個 chunk
+   * → **飛行中每 500ms 有 80ms 卡在這裡**。
+   *
+   * 開傘的計時邏輯全部用 HAL_GetTick() 差值，不會因為迴圈變慢而算錯，
+   * 但 IMU 每 10ms 取樣會連續漏掉 8 筆，卡爾曼積分跟著變粗。
+   *
+   * 修法：連續失敗到一定次數就認定「沒有主機在讀」，之後每個 chunk 只試一次
+   * 不再等待；任何一次成功就立刻恢復完整重試。主機在的時候行為完全不變。*/
+  static uint8_t cdc_dead = 0;      /* 連續失敗計數，達 CDC_DEAD_N 後進省略模式 */
+  #define CDC_DEAD_N 6
+
   while (remaining > 0)
   {
     uint16_t chunk = (uint16_t)(remaining > 64 ? 64 : remaining);
-    /* 重試 3 次，每次間隔 5ms */
-    for (int r = 0; r < 3; r++)
+    int tries = (cdc_dead >= CDC_DEAD_N) ? 1 : 3;
+    int ok = 0;
+    for (int r = 0; r < tries; r++)
     {
-      if (CDC_Transmit_FS((uint8_t*)p, chunk) == USBD_OK) break;
-      HAL_Delay(5);
+      if (CDC_Transmit_FS((uint8_t*)p, chunk) == USBD_OK) { ok = 1; break; }
+      if (r + 1 < tries) HAL_Delay(5);
     }
+    if (ok) cdc_dead = 0;
+    else if (cdc_dead < CDC_DEAD_N) cdc_dead++;
+
     p += chunk;
     remaining -= chunk;
-    if (remaining > 0) HAL_Delay(5);
+    if (remaining > 0 && cdc_dead < CDC_DEAD_N) HAL_Delay(5);
   }
 } 
 
