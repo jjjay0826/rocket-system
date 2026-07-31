@@ -46,9 +46,30 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
 /* USER CODE BEGIN PD */
 /* ---- 開傘參數（改這裡即可調整） ---- */
 /* 開傘發火腳 = CubeMX label「FIRE_7V_2」(PA1 → 7V_OUT2 一路)
- * ★若降落傘電火頭改插 7V_OUT1（PA0 雙路冗餘），把這兩行改成 FIRE_7V_1_* 即可 */
+ * ★2026-07-31 起這個巨集不再是唯一的點傘腳位 —— 氣囊移除後 PA0 也併進了
+ *   傘迴路，兩支腳必須同時驅動。所有點火請走下面的 deploy_fire_on/off()。*/
 #define DEPLOY_PORT     FIRE_7V_2_GPIO_Port
 #define DEPLOY_PIN      FIRE_7V_2_Pin
+
+/* ★★★ 2026-07-31 硬體改動：氣囊取消，PA0（原 7V_OUT1 氣囊路）已改接進
+ *     降落傘發火迴路 —— 傘要 PA0 與 PA1 【同時】被驅動才會點著。
+ *
+ * 因此所有點傘路徑一律走下面這兩個函式，不要再單獨操作任何一支腳。
+ * 原本散在五個地方各寫一次 HAL_GPIO_WritePin，改硬體時漏掉任何一處，
+ * 那條路徑就會靜靜地變成「拉了腳但傘不會開」—— 而且測不出來，因為
+ * 遙測只看得到 flight_state 有進 DEPLOYING。集中成一個函式才擋得住。
+ *
+ * 收尾同時拉低兩支：脈衝長度沿用 DEPLOY_PULSE_MS。            */
+static inline void deploy_fire_on(void)
+{
+  HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(DEPLOY_PORT,         DEPLOY_PIN,    GPIO_PIN_SET);
+}
+static inline void deploy_fire_off(void)
+{
+  HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(DEPLOY_PORT,         DEPLOY_PIN,    GPIO_PIN_RESET);
+}
 #define LAUNCH_AZ_G  2.5f       /* 離架偵測合加速度閾值 (g)。1.3→2.5 (2026-07-20)：
                                  * OpenRocket 模擬推力段峰值 6g、2.5g 約 t+1.7s 達成
                                  * （比 1.3g 僅晚 ~0.35s，20s 備援起點幾乎不動）；
@@ -702,27 +723,24 @@ static uint32_t manual_arm_timeout(void)
 /* LoRa 回覆包裝：LoRa_SendStr 回傳 int，包成 reply 回呼要的 void(const char*) */
 static void lora_cmd_reply(const char *s) { (void)LoRa_SendStr(s); }
 
-/* 氣囊發火（FIRE_7V_1/PA0/7V_OUT1）脈衝狀態：獨立於開傘狀態機——
- * 氣囊不改 flight_state，脈衝由 Poll 收尾（統一使用 DEPLOY_PULSE_MS，
- * 氣囊與降落傘皆以此變數為準）。 */
-static volatile uint8_t abg_active  = 0;
-static uint32_t         abg_fire_ms = 0;
-
-/* 落海/觸地後自動充氣（一次性）。與遠端 abg 命令共用脈衝機制與 PA0，
- * airbag_auto_fired 保證整趟只自動觸發一次（撞擊與 LANDED 兩個觸發點
- * 先到先觸發，另一個被本旗標擋掉）。與遠端 abg 命令並存無害——遠端已
- * 在充氣時 abg_active=1，本函式讓位。 */
-static uint8_t airbag_auto_fired = 0;
+/* ★2026-07-31：氣囊整組移除。
+ * 原本這裡有 abg_active / abg_fire_ms / airbag_auto_fired 三個狀態，
+ * 以及撞擊偵測與 LANDED 兩個自動充氣觸發點，全部刪除。
+ *
+ * 刪掉而不是「留著但不觸發」的理由：PA0 現在是降落傘發火迴路的一半。
+ * 任何殘存的「單獨拉 PA0」路徑都會在錯誤的時機半驅動傘迴路 —— 就算
+ * 這次接線下它點不著，也是一條沒有人會再驗證的活路徑。寧可讓編譯器
+ * 幫忙找出所有引用點。
+ */
 
 /* ── 【①】地面測試模式（2026-07-28）────────────────────────────────────
- * 背景：桌上做 HELP 教的 ARM → FIRE 測試時，flight_state 會走
- *   DEPLOYING →(1s)→ DEPLOYED →(靜止 10s)→ LANDED，而 LANDED 會呼叫
- *   airbag_fire_auto() 點燃 PA0。cmd.c 的警語寫的是單數 "igniter"，操作員
- *   通常只斷開降落傘那顆，氣囊那顆就這樣被燒掉。
- * 所以自動充氣加上「這趟真的飛過」的閘門（peak ≥ 20m）。但那樣就違反
- *   規範 4.5.3「回收系統感測器應在模擬觸發條件下地面測試」——因此提供這個
- *   明確的測試模式：**刻意**下指令才解除閘門，而且會自動逾時、逾時後恢復。
- * 手動 /abg（直接拉 PA0）不受任何影響，氣囊電路本身照常可測。 */
+ * 原始用途（2026-07-28）是擋住「桌測跑到 LANDED 就自動充氣氣囊」。
+ * ★2026-07-31 氣囊移除後，自動充氣那條路徑已經不存在，但這個模式仍要
+ *   保留，因為它現在扛兩件事：
+ *     ① PB6 手動發火鈕的三道閘門之一（IDLE + ARM + GNDTEST）
+ *     ② cmd.c 維修指令（PINTEST/BRIDGE…）的地面限定
+ *   同時它仍是規範 4.5.3「回收系統應在模擬觸發條件下地面測試」的入口。
+ * 10 分鐘自動逾時不變 —— 忘了關也不會帶上發射台。 */
 #define GND_TEST_WINDOW_MS  600000UL   /* 10 分鐘後自動失效，忘了關也不會帶上發射台 */
 static uint32_t gnd_test_until = 0;
 /* 給 cmd.c 用：維修指令（PINTEST/PINHOLD/BUSFLOAT/READ/CLEAR/TRUNC/BRIDGE）
@@ -734,23 +752,6 @@ uint8_t flight_is_idle(void) { return (uint8_t)(flight_state == FLIGHT_IDLE); }
 static inline uint8_t gnd_test_active(void)
 {
   return (gnd_test_until != 0) && (HAL_GetTick() < gnd_test_until);
-}
-
-static void airbag_fire_auto(void)
-{
-  if (airbag_auto_fired || abg_active) return;
-  /* 【①】沒真的飛過就不自動充氣（桌測防護）。刻意要測時先開地面測試模式。*/
-  if (peak_rel_alt < DEPLOY_PEAK_MIN_M && !gnd_test_active()) {
-    cdc_write("MSG WARN Airbag auto-fire SUPPRESSED - never flew "
-              "(send #CMD:GNDTEST_SALT3310# to test on ground)\r\n");
-    return;
-  }
-  airbag_auto_fired = 1;
-  abg_active  = 1;
-  abg_fire_ms = HAL_GetTick();
-  HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_SET);
-  cdc_write("MSG INFO Airbag inflation started (auto splashdown)\r\n");
-  if (mod.lora) LoRa_SendStr("MSG INFO Airbag inflation started (auto splashdown)\r\n");
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -775,12 +776,8 @@ void ManualDeploy_Poll(void)
 {
   if (manual_armed && (HAL_GetTick() - manual_arm_time) > manual_arm_timeout())
     manual_armed = 0;
-  if (abg_active && (HAL_GetTick() - abg_fire_ms) >= DEPLOY_PULSE_MS) {
-    HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_RESET);
-    abg_active = 0;
-  }
   if (dpl_pulse_active && (HAL_GetTick() - dpl_pulse_ms) >= DEPLOY_PULSE_MS) {
-    HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_RESET);
+    deploy_fire_off();
     dpl_pulse_active = 0;
   }
 }
@@ -848,14 +845,14 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     }
     gnd_test_until = HAL_GetTick() + GND_TEST_WINDOW_MS;
     snprintf(rb, sizeof(rb),
-      "MSG WARN GROUND TEST MODE ON for %lus - airbag auto-fire UNGATED, "
+      "MSG WARN GROUND TEST MODE ON for %lus - PB6 manual fire ENABLED, "
       "disconnect BOTH igniters\r\n", (unsigned long)(GND_TEST_WINDOW_MS / 1000UL));
     reply(rb);
     return;
   }
   if (strcmp(line, "#CMD:GNDTEST_OFF#") == 0) {
     gnd_test_until = 0;
-    reply("MSG INFO Ground test mode OFF - airbag auto-fire gated again\r\n");
+    reply("MSG INFO Ground test mode OFF - PB6 manual fire disabled again\r\n");
     return;
   }
   /* SETCH：換 LoRa 頻道（#CMD:SETCH_72# → 922.125MHz）。
@@ -955,7 +952,7 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
         if (dpl_pulse_active) { reply("MSG WARN Deploy pulse already active\r\n"); return; }
         dpl_pulse_active = 1;
         dpl_pulse_ms     = HAL_GetTick();
-        HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
+        deploy_fire_on();
         reply("MSG SUCCESS Parachute deployed successfully\r\n");
 #else
         if (flight_state == FLIGHT_DEPLOYING || flight_state == FLIGHT_DEPLOYED) {
@@ -967,15 +964,19 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
         manual_armed   = 0;
         deploy_time_ms = HAL_GetTick();
         flight_state   = FLIGHT_DEPLOYING;      /* 走自動開傘同一 DEPLOY_PULSE_MS 脈衝收尾 */
-        HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
+        deploy_fire_on();
         reply("MSG SUCCESS Parachute deployed successfully\r\n");
 #endif
       } else {
-        if (abg_active) { reply("MSG WARN Airbag already firing\r\n"); return; }
-        abg_active  = 1;                        /* 收尾在 ManualDeploy_Poll */
-        abg_fire_ms = HAL_GetTick();
-        HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_SET);
-        reply("MSG INFO Airbag inflation started\r\n");
+        /* ★2026-07-31：氣囊已移除，PA0 併入降落傘發火迴路。
+         * 單獨拉 PA0 只會半驅動傘迴路 —— 點不著，卻讓操作員以為做了事。
+         * 所以明確拒收並說明去路，不要靜默忽略。
+         * 指令字串本身保留（地面站舊版仍可能送出），只是不再有動作。*/
+        /* ⚠ 這句【不可以】出現 "dpl" 三個字母。地面站的拒收分派是拿
+         * 訊息內容做子字串比對（main_window.py:1495），一旦命中 "dpl"
+         * 就會把正在等待確認的開傘指令清掉並標成紅色 REJECTED。*/
+        reply("MSG WARN REJECT abg - airbag removed 2026-07-31; "
+              "PA0 now drives the parachute circuit - use chute command\r\n");
       }
       return;
     }
@@ -1003,7 +1004,7 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     manual_armed   = 0;
     deploy_time_ms = HAL_GetTick();
     flight_state   = FLIGHT_DEPLOYING;
-    HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
+    deploy_fire_on();
     reply("MSG SUCCESS Parachute deployed successfully\r\n");
     return;
   }
@@ -1241,7 +1242,7 @@ int main(void)
     /* [A] DEPLOYING → DEPLOYED：脈衝結束後 (DEPLOY_PULSE_MS) 關閉 GPIO */
     if (flight_state == FLIGHT_DEPLOYING &&
         (now - deploy_time_ms) >= DEPLOY_PULSE_MS) {
-      HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_RESET);
+      deploy_fire_off();
       flight_state = FLIGHT_DEPLOYED;
       land_stable_start = 0;   /* 重置落地計時器 */
       cdc_write("*** DEPLOYED ***\r\n");
@@ -1251,29 +1252,10 @@ int main(void)
      * 條件：total_g 接近 1g（靜止）且 rel_alt < 30m，持續 10 秒
      * 目的：進入低功耗模式，減少 SD 寫入，保留 LoRa beacon 供尋回 */
     if (flight_state == FLIGHT_DEPLOYED) {
-      /* ── 落海後自動充氣氣囊（主觸發＝撞擊偵測）──────────────────────
-       * total_g spike > AIRBAG_IMPACT_G ＝觸水/觸地瞬間減速 → 立即充氣。
-       * ★不等 LANDED：落海後水面波浪會讓 total_g 持續晃動、「靜止 10s」
-       *   遲遲不成立甚至永不成立，純 LANDED 觸發對落海不可靠。撞擊偵測
-       *   在觸水那一刻就抓到，即時。airbag_fire_auto 自帶一次性保護。
-       * ⚠ 限制：IMU 死時 total_g 不更新→此路失效，只剩下方 LANDED 備援
-       *   （同樣依賴 total_g，故 IMU 全死時落海氣囊不保證，屬硬體風險）。
-       * ★2026-07-30 兩道防誤觸（理由見 AIRBAG_ARM_DELAY_MS 的說明）：
-       *   ① 點火後 DEPLOY_PULSE_MS + ARM_DELAY 內不監看 → 讓開傘衝擊過去
-       *   ② 需連續超標 IMPACT_MS → 濾掉單一毛刺
-       *   桌測模式（gnd_test_active）維持原本的即時觸發，方便地面驗證。*/
-      {
-        static uint32_t impact_start = 0;
-        int watch_armed = gnd_test_active()
-                          || ((now - deploy_time_ms)
-                              >= (DEPLOY_PULSE_MS + AIRBAG_ARM_DELAY_MS));
-        if (watch_armed && mod.imu && total_g > AIRBAG_IMPACT_G) {
-          if (impact_start == 0) impact_start = now;
-          if ((now - impact_start) >= AIRBAG_IMPACT_MS) airbag_fire_auto();
-        } else {
-          impact_start = 0;
-        }
-      }
+      /* ★2026-07-31：原本這裡是「落海撞擊偵測 → 自動充氣氣囊」。
+       * 氣囊已移除，整段刪掉（AIRBAG_IMPACT_G / AIRBAG_ARM_DELAY_MS /
+       * AIRBAG_IMPACT_MS 三個 #define 保留但已無引用，供日後恢復參考）。
+       * 落海浮力現在完全靠箭身本身，見 doc/ 的浮力評估。               */
 
       /* ★落地判斷必須有「活著的感測器」背書（2026-07-28 全盤審查）：
        * total_g 與 press/rel_alt 宣告在主迴圈之外，感測器一旦死掉，它們就
@@ -1298,8 +1280,6 @@ int main(void)
           cdc_write(lmsg);   /* 不寫 SD：避免插入非 CSV 行（落地由 state 欄=4 標記）*/
           /* 截掉 8MB 預分配的尾端，log.csv 收斂為實際資料長度（落地在地面，GC 可接受）*/
           if (logger_is_ready()) { f_truncate(&file); f_sync(&file); }
-          /* 氣囊備援：撞擊太軟沒觸發主路徑時，進 LANDED 補充氣（一次性擋重複）*/
-          airbag_fire_auto();
         }
       } else {
         land_stable_start = 0;   /* 條件中斷（可能降落傘仍在搖擺），重置計時 */
@@ -1324,7 +1304,7 @@ int main(void)
           postreset_watch = 0;            /* 一次性 */
           deploy_time_ms  = now;
           flight_state    = FLIGHT_DEPLOYING;
-          HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
+          deploy_fire_on();
           /* 重建最低限度的飛行狀態，讓後續 DEPLOYED→LANDED 與氣囊能正常走 */
           imu_armed      = 1;
           launch_time_ms = now;
@@ -1435,7 +1415,7 @@ int main(void)
       if (deploy_main || deploy_bkup) {
         deploy_time_ms = now;
         flight_state   = FLIGHT_DEPLOYING;
-        HAL_GPIO_WritePin(DEPLOY_PORT, DEPLOY_PIN, GPIO_PIN_SET);
+        deploy_fire_on();
         if (deploy_main) {
           /* 觸發訊息含診斷數據，便於事後分析。同步下傳 MSG 事件
            * （地面站規範格式）——自動開傘是最關鍵事件，先前只上 USB、
@@ -1944,7 +1924,7 @@ int main(void)
           /* 【①】地面測試模式開著時，遙測每一幀都吼一聲——這個模式會解除
            * 氣囊自動充氣的閘門，絕不能在沒人注意的情況下留著。*/
           if (gnd_test_active() && !lora_tx_pending)
-            LoRa_SendStr("MSG WARN GROUND TEST MODE ACTIVE - airbag auto-fire ungated\r\n");
+            LoRa_SendStr("MSG WARN GROUND TEST MODE ACTIVE - PB6 manual fire enabled\r\n");
 
           uint8_t mod_hex = (mod.bmp585 << 3) | (mod.imu << 2) | (mod.lora << 1) | (mod.sdcard << 0);
           uint8_t pyro_hex = (cond_A << 3) | (ca_eff << 2) | (cond_B << 1) | (cb_eff << 0);
@@ -2265,10 +2245,12 @@ int main(void)
             && gnd_test_active()) {
           manual_fire_active = 1;
           manual_fire_start_t = now;
-          /* 只點降落傘那一路。原本兩路同時拉高，桌測要驗哪一路就分別測，
-           * 沒有理由讓一次誤觸把兩顆電火頭都燒掉。*/
-          HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_SET);
-          cdc_write("*** MANUAL FIRE ACTIVE (0.25s, CH1 only) ***\r\n");
+          /* ★2026-07-31：改硬體後傘迴路需要 PA0+PA1 同時驅動，只拉一路
+           * 等於什麼都沒發生。這顆鈕的用途是地面驗證發火迴路，拉單路就
+           * 失去意義，所以改走 deploy_fire_on()。
+           * 三道閘門（IDLE + ARM + GNDTEST）不變 —— 那才是安全來源。*/
+          deploy_fire_on();
+          cdc_write("*** MANUAL FIRE ACTIVE (0.25s, PA0+PA1) ***\r\n");
         } else if (!manual_fire_active) {
           cdc_write("MANUAL FIRE REJECTED - need IDLE + ARM + GNDTEST\r\n");
         }
@@ -2281,9 +2263,8 @@ int main(void)
           manual_fire_active = 0;
           // 若目前並非飛行開傘中，則安全拉低點火腳
           if (flight_state != FLIGHT_DEPLOYING) {
-            HAL_GPIO_WritePin(FIRE_7V_1_GPIO_Port, FIRE_7V_1_Pin, GPIO_PIN_RESET);
-            /* CH2 不在此拉低：ManualDeploy_Poll 的氣囊脈衝也用 PA1，
-             * 在這裡無條件拉低會把正在進行中的氣囊脈衝砍斷。*/
+            /* DEPLOYING 中不碰 —— 那是真的在開傘，脈衝由狀態機收尾。*/
+            deploy_fire_off();
           }
           cdc_write("*** MANUAL FIRE ENDED ***\r\n");
         }
