@@ -1807,8 +1807,13 @@ int main(void)
           if (raw_now == bmp_raw_prev) {
             if (++bmp_same_cnt >= 50) {
               bmp_same_cnt = 0;
-              BMP585_Init(&hspi2);
-              cdc_write("BMP: FREEZE REINIT\r\n");
+              /* ★2026-07-31：先軟體重置再 init。只呼叫 Init 等於重寫兩個設定
+               * 暫存器，對「狀態機卡住」這種真正需要救援的情況沒有作用。
+               * 並檢查回傳值 —— 舊碼無論成敗都印 FREEZE REINIT，看起來像修好了。*/
+              BMP585_SoftReset();
+              uint8_t rid = BMP585_Init(&hspi2);
+              cdc_write(rid ? "BMP: FREEZE REINIT ok\r\n"
+                            : "BMP: FREEZE REINIT FAILED\r\n");
             }
           } else { bmp_same_cnt = 0; bmp_raw_prev = raw_now; }
         }

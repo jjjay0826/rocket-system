@@ -1,12 +1,17 @@
 /*
  * bmp585.c — BMP5 family SPI driver (BMP585 / BMP581)
  *
- * 硬體接法（共用 SPI3）：
- *   SPI3 SCK  = PB12
- *   SPI3 MISO = PB4
- *   SPI3 MOSI = PB5
- *   BMP585 CS = PB10  (見 bmp585.h 的 BMP_CS_PIN)
+ * 硬體接法（rocket_v2 黑丸版，與 LSM6DS3 共用 SPI2）：
+ *   SPI2 SCK  = PB13
+ *   SPI2 MISO = PB14
+ *   SPI2 MOSI = PB15
+ *   BMP585 CS = PB12  (= CubeMX label BARO_CS，見 bmp585.h)
+ *   LSM6DS3 CS = PA8  （同一條匯流排上的另一顆）
  *   BMP585 CSB 必須接 GPIO（不能接 VDD，否則進 I2C 模式）
+ *
+ * ⚠ 2026-07-31 更正：此處原本寫「共用 SPI3 / SCK=PB12 / CS=PB10」，那是
+ *   自製板時代的接法。程式碼一直是對的（CS 走 BMP_CS_PORT/PIN 巨集），
+ *   錯的只有這段註解 —— 但它會在查 SPI2 焊點問題時把人帶去量錯的腳位。
  *
  * Register map (BMP5 series, Bosch BMP5-Sensor-API):
  *   0x01 : CHIP_ID        (BMP585=0x51, BMP581=0x50)
@@ -66,6 +71,22 @@ static HAL_StatusTypeDef bmp_read_regs(uint8_t reg, uint8_t *data, uint8_t len)
     if (r == HAL_OK)
         memcpy(data, &rx[1], len);  /* 跳過第一個 byte（送 addr 時的 dummy rx） */
     return r;
+}
+
+/* ---- 軟體重置（BMP5 家族：CMD 暫存器 0x7E 寫 0xB6）----------------------
+ * 給「凍結看門狗」用。原本凍結時只呼叫 BMP585_Init()，而它只做了讀 CHIP_ID
+ * ＋ 寫兩個設定暫存器 —— **卡住的狀態機不會因為寫暫存器就解開**，所以那條
+ * 救援路徑很可能是空操作。宜蘭那次 MOD 掉 0 之後就沒再回來，符合這個描述。
+ *
+ * ★刻意不放進開機路徑。開機時晶片是乾淨的，加一道重置只是多一個失敗機會，
+ *   而氣壓計是開傘條件 A 的唯一來源 —— 賽前不在關鍵路徑上多加動作。
+ *   救援路徑則相反：那時晶片已經不正常了，重置沒有東西可以弄壞。
+ * ------------------------------------------------------------------------- */
+void BMP585_SoftReset(void)
+{
+    if (!bmp_spi) return;
+    bmp_write_reg(0x7E, 0xB6);
+    HAL_Delay(10);          /* 資料表 ~2ms，取 10ms 保守 */
 }
 
 /* ---- 初始化：回傳 chip_id（0=I2C/SPI 無回應） ---- */

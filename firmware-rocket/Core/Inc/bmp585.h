@@ -14,6 +14,7 @@
 uint8_t  BMP585_Init(SPI_HandleTypeDef *hspi); // 回傳 chip_id (0x51=BMP585, 0x50=BMP581, 0=無回應)
 float    BMP585_ReadPressure(void);            // 回傳氣壓 (hPa)
 float    BMP585_ReadAltitude(float seaLevel_hPa); // 計算高度 (m)
+void     BMP585_SoftReset(void);               // 軟體重置（僅凍結救援用，見 .c 說明）
 uint32_t BMP585_GetLastRaw(void);              // 回傳最後一次讀到的 24-bit 原始值（偵錯用）
 
 #endif
