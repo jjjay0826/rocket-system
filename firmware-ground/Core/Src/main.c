@@ -5,8 +5,15 @@
  * @brief   E22 LoRa 透傳接收 → USB CDC 轉發到電腦
  *
  *  硬體與火箭端相同：WeAct 黑丸版 STM32F411（HSE 25MHz）。
- *    USART1 (PA9=TX→E22 RXD, PA10=RX←E22 TXD) = LoRa E22（透傳，M0/M1 接 GND）
+ *    USART2 = LoRa E22（透傳）           ← 見 usart.c 的 MX_USART2_UART_Init
+ *    PA0 = LORA_M2（拉高進透傳模式）      ← 見 lora_bridge.c LoraBridge_Init
+ *    PA1 = LORA_AUX（低電位=模組忙）
  *    USB CDC = 對電腦（虛擬 COM）
+ *
+ *  ⚠ 2026-07-31 更正：此處原本寫「USART1 (PA9=TX, PA10=RX)」，那是錯的
+ *    —— 全專案只初始化 USART2，PA9/PA10 根本沒有被設定。程式一直是對的，
+ *    錯的只有這段註解，但它會在查「收不到遙測」時把人帶去量錯的腳位，
+ *    而且量到的會是浮接的腳，看起來就像模組壞了。
  *
  *  火箭端每 500ms 送一行遙測（以 "\r\n" 結尾）；本端收到整行就「原樣轉發」，
  *  不解析、不改動任何位元組——真正的解析器是電腦上的 Python 地面站。
@@ -98,6 +105,29 @@ int main(void)
   MX_FATFS_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  /* ★2026-07-31：中斷優先權重排。
+   *
+   * CubeMX 把 OTG_FS 和 USART2 【都設成 0】。同優先權彼此無法搶佔，
+   * 也就是「誰先進來誰做完」。USB 的 ISR 在列舉、控制傳輸時可以跑
+   * 超過 1ms，而 9600 baud 下一個位元組正好是 1.04ms —— USART2 只有
+   * 一個位元組的硬體緩衝，USB ISR 只要壓過 1.04ms，那個位元組就沒了
+   * （ORE），而且【不會重傳】。
+   *
+   * 火箭端的排法（USB=0 最高）在那裡是對的：飛行時 USB 根本沒插，
+   * 而 LoRa/GPS 的 ISR 比較重。地面端的取捨完全相反：
+   *
+   *     USART2 收到的位元組 = 這趟飛行唯一的資料，掉了就沒了
+   *     USB 慢一點          = CDC 自己會重試，看不出差別
+   *
+   * 所以這裡讓 USART2 搶贏 USB。UART 的 ISR 只做「丟進 ring buffer +
+   * 重新掛上接收」，量測不到的短（幾 µs），對 USB 的時序沒有實質影響。
+   *
+   * 寫在 USER CODE 區塊內而不是去改 usbd_conf.c / usart.c 的生成碼，
+   * 是為了讓 CubeMX 重新產生時不會被洗掉。這裡跑在兩個 MX_*_Init
+   * 之後，所以會蓋掉它們設的值。 */
+  HAL_NVIC_SetPriority(USART2_IRQn, 0, 0);   /* 最高：不能掉位元組 */
+  HAL_NVIC_SetPriority(OTG_FS_IRQn, 1, 0);   /* 次之：慢一點無所謂 */
+
   LoraBridge_Init();
   /* USER CODE END 2 */
 
@@ -169,7 +199,15 @@ void SystemClock_Config(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  /* ★2026-07-31：原本是 __disable_irq() + while(1)。
+   * SystemClock_Config() 的兩個失敗分支都走到這裡，也就是說
+   * 【HSE 晶振沒起來 = 這塊板永久磚死】，而且連 USB 都不會列舉，
+   * 現場看到的就是「插上去沒有 COM port」。
+   *
+   * 改成重開機。若 HSE 真的壞了會變成重開迴圈 —— 但那反而是
+   * 明確的症狀（COM port 反覆出現消失），比一片死寂好判讀太多。
+   * 若只是上電瞬間的暫態（低溫、電壓爬升慢），重開一次就過了。 */
+  NVIC_SystemReset();
   __disable_irq();
   while (1)
   {

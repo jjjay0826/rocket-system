@@ -72,9 +72,29 @@ static void rcvr_spi_multi(BYTE *buff, UINT btr)
 {
     for (UINT i = 0; i < btr; i++) buff[i] = xchg_spi(0xFF);
 }
+/* ★2026-07-31：逾時由 1000ms 降到 100ms。
+ *
+ * 這個函式跑在主迴圈裡，而【開傘狀態機也在同一個迴圈】。SD 卡卡住的
+ * 時候，主迴圈就停在這裡，期間感測器不更新、cond_A/cond_B 不重算、
+ * 18 秒備援計時不檢查。
+ *
+ * 單次磁區寫入的阻塞上限原本是：
+ *     send_cmd → select_card → wait_ready(500)      500ms
+ *     xmit_datablock → wait_ready(500)              500ms
+ *     xmit_spi_multi                               1000ms
+ *                                          合計 ~2000ms
+ * 而 81 組模擬裡 C 備援最小餘裕只有 1.29 秒 —— 同一個數量級。
+ *
+ * 512 bytes @ 656kHz 實際只要 6.2ms。100ms 已經是 16 倍餘裕，正常
+ * 傳輸絕不會誤觸；真的超過 100ms 表示 SPI 或卡片已經異常，那時候
+ * 【快點失敗】遠比繼續等有價值 —— 資料本來就以 LoRa 為主，
+ * 為了一筆寫不進去的 CSV 賠掉開傘時序不划算。
+ *
+ * 註：wait_ready 的兩個 500ms 沒有動。那是在等卡片完成 program，
+ * SD 規格允許到 250ms，砍下去會誤判正常的慢卡。改完的上限 ~1.1s。*/
 static void xmit_spi_multi(const BYTE *buff, UINT btx)
 {
-    HAL_SPI_Transmit(SD_SPI, (uint8_t*)buff, (uint16_t)btx, 1000);
+    HAL_SPI_Transmit(SD_SPI, (uint8_t*)buff, (uint16_t)btx, 100);
 }
 
 /* 等卡就緒（回傳 0xFF 表示 ready）；wt = 逾時 ms */
@@ -327,7 +347,19 @@ DRESULT SD_disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT count)
         if (send_cmd(CMD24, sector) == 0 && xmit_datablock(buff, 0xFE))
             count = 0;
     } else {
-        if (CardType & CT_SDC) send_cmd(ACMD41, 0);   /* (可選) 預擦除提示略 */
+        /* ★2026-07-31：原本這裡是
+         *     if (CardType & CT_SDC) send_cmd(ACMD41, 0);
+         * 註解寫「(可選) 預擦除提示略」—— 但命令並沒有被略掉，而且送錯了。
+         *
+         * ChaN 參考實作在這個位置送的是 ACMD23 (SET_WR_BLK_ERASE_COUNT)，
+         * 引數是 count。ACMD41 是 SEND_OP_COND —— 初始化命令，用來讓卡
+         * 離開 idle。對一張已經初始化好的卡送它，最好的情況是回 0x00 被
+         * 忽略，代價是每次多塊寫入白白多送兩個命令框（CMD55 + ACMD41），
+         * 每框都要走一次 select_card() → wait_ready(500)。
+         *
+         * 這張卡本來就已經在鬧脾氣（reset 鎖卡實測救不回來），沒有理由
+         * 在寫入路徑上多送一個語意不對的初始化命令。
+         * 直接刪掉 —— 預擦除提示本來就是可選的最佳化，不影響正確性。 */
         if (send_cmd(CMD25, sector) == 0) {
             do {
                 if (!xmit_datablock(buff, 0xFC)) break;

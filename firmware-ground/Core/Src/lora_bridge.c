@@ -23,6 +23,19 @@ static RingBuffer ring_usb_to_lora;
 static uint8_t uart_rx_byte;
 static uint8_t usb_tx_buffer[256];
 static volatile uint8_t usb_tx_busy = 0;
+/* ★2026-07-31：usb_tx_busy 的解鎖【只有】CDC_TransmitCplt_FS 一條路。
+ * 只要有一次 CDC_Transmit_FS 回 USBD_OK 但完成中斷沒進來（主機端
+ * USB 堆疊打嗝、線材接觸不良、host 突然停止讀取），這個旗標就永遠
+ * 是 1，LoRa→USB 方向從此完全靜音。
+ *
+ * 而症狀是【沒有症狀】：COM port 還在、檔案還在、沒有任何錯誤訊息，
+ * 就只是不再有資料 —— 和「火箭失聯」長得一模一樣。現場會去查天線、
+ * 查距離、查火箭，不會想到是接收端的旗標卡住。
+ *
+ * 256 bytes 在 USB FS 上是幾十微秒的事，100ms 已經是三個數量級的
+ * 餘裕，不會誤觸發正常傳輸。 */
+#define USB_TX_TIMEOUT_MS 100U
+static uint32_t usb_tx_start_ms = 0;
 
 static inline void RingBuffer_Init(RingBuffer *rb) {
     rb->head = 0;
@@ -110,6 +123,14 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
 }
 
 void LoraBridge_Process(void) {
+    /* 卡住的傳輸自己解鎖（見 USB_TX_TIMEOUT_MS 的說明）。
+     * 這裡故意不去碰 USB 堆疊 —— 只放掉旗標，讓下一輪重新送。
+     * 真的是主機沒在讀的話，CDC_Transmit_FS 會回 USBD_BUSY，
+     * 也就是每 100ms 試一次、失敗就算了，不會把主迴圈拖住。 */
+    if (usb_tx_busy && (HAL_GetTick() - usb_tx_start_ms) >= USB_TX_TIMEOUT_MS) {
+        usb_tx_busy = 0;
+    }
+
     /* -------------------------------------------------------------
      * 1. LoRa (USART2 RX) -> USB CDC (PC)
      * ------------------------------------------------------------- */
@@ -126,6 +147,7 @@ void LoraBridge_Process(void) {
             }
 
             usb_tx_busy = 1;
+            usb_tx_start_ms = HAL_GetTick();
             uint8_t status = CDC_Transmit_FS(usb_tx_buffer, (uint16_t)chunk);
             if (status != USBD_OK) {
                 usb_tx_busy = 0; /* If USB transmit failed/busy, release flag */

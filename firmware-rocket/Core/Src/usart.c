@@ -117,6 +117,23 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     /* 啟用 USART1 全域中斷，讓 RX 能透過 ISR 接收命令 */
     HAL_NVIC_SetPriority(USART1_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
+
+    /* ★2026-07-31：RX(PA10) 補上拉。
+     * UART 線閒置時的定義電位是【高】。CubeMX 產生的是 GPIO_NOPULL，
+     * 於是 E22 沒上電、沒插、或 TXD 進高阻的瞬間，這支腳是浮的 ——
+     * 浮腳會抓到雜訊，UART 把雜訊的下緣當成 start bit，接著就是一串
+     * framing error 和亂位元組，最壞會累積成 ORE。
+     * （ORE 在 HAL 裡是【阻塞型】錯誤，會停掉接收；那條路已經由
+     *   HAL_UART_ErrorCallback 補起來了，但最好的處理是一開始就不要
+     *   讓它發生。）
+     * TX 是推挽輸出，上拉對它沒作用，一起設只是省一次呼叫。 */
+    GPIO_InitTypeDef rxpu1 = {0};
+    rxpu1.Pin       = LORA_TX_Pin|LORA_RX_Pin;
+    rxpu1.Mode      = GPIO_MODE_AF_PP;
+    rxpu1.Pull      = GPIO_PULLUP;
+    rxpu1.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    rxpu1.Alternate = GPIO_AF7_USART1;
+    HAL_GPIO_Init(GPIOA, &rxpu1);
   /* USER CODE END USART1_MspInit 1 */
   }
   else if(uartHandle->Instance==USART2)
@@ -145,6 +162,17 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
   /* USER CODE BEGIN USART2_MspInit 1 */
   /* GPS 降優先序：ISR 內做 NMEA 解析較重，原 prio=0（最高）會搶 USB/LoRa/SysTick */
   HAL_NVIC_SetPriority(USART2_IRQn, 6, 0);
+
+    /* ★2026-07-31：RX(PA3) 補上拉，理由同 USART1。
+     * GPS 這一路更需要 —— ATGM336H 冷開機要幾十秒才開始吐 NMEA，
+     * 那段時間 TXD 可能還沒被驅動，RX 就是浮的。 */
+    GPIO_InitTypeDef rxpu2 = {0};
+    rxpu2.Pin       = GPS_TX_Pin|GPS_RX_Pin;
+    rxpu2.Mode      = GPIO_MODE_AF_PP;
+    rxpu2.Pull      = GPIO_PULLUP;
+    rxpu2.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    rxpu2.Alternate = GPIO_AF7_USART2;
+    HAL_GPIO_Init(GPIOA, &rxpu2);
   /* USER CODE END USART2_MspInit 1 */
   }
 }

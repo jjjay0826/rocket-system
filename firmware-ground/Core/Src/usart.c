@@ -84,7 +84,18 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     HAL_NVIC_SetPriority(USART2_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(USART2_IRQn);
   /* USER CODE BEGIN USART2_MspInit 1 */
-
+    /* ★2026-07-31：RX(PA3) 補上拉。CubeMX 給的是 GPIO_NOPULL。
+     * UART 線閒置的定義電位是【高】；E22 沒上電或 TXD 進高阻的瞬間
+     * 這支腳是浮的，浮腳抓到雜訊就會被當成 start bit，產生一串亂位元組
+     * 與 framing error，最壞累積成 ORE。
+     * 這塊板是遙測唯一的入口，寧可多這一道。 */
+    GPIO_InitTypeDef rxpu = {0};
+    rxpu.Pin       = LORA_TX_Pin|LORA_RX_Pin;
+    rxpu.Mode      = GPIO_MODE_AF_PP;
+    rxpu.Pull      = GPIO_PULLUP;
+    rxpu.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    rxpu.Alternate = GPIO_AF7_USART2;
+    HAL_GPIO_Init(GPIOA, &rxpu);
   /* USER CODE END USART2_MspInit 1 */
   }
 }
@@ -116,5 +127,8 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 
 /* USER CODE BEGIN 1 */
 /* MX_USART2_UART_Init 已由 CubeMX 生成（見上方），舊板手寫版移除以免重複定義。
- * GPS 只需接收，生成版為 TX_RX 模式無妨（我們不對 GPS 發送）。*/
+ * ⚠ 2026-07-31 更正：原註解寫「GPS 只需接收…我們不對 GPS 發送」——
+ *   那是從火箭端複製過來時忘了改的。這塊板上【USART2 接的是 LoRa E22】，
+ *   而且是雙向的：下行遙測進來、上行指令（arm/dpl）出去。
+ *   TX_RX 模式在這裡是必要的，不是「無妨」。 */
 /* USER CODE END 1 */

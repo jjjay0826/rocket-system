@@ -143,7 +143,33 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* spiHandle)
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN SPI2_MspInit 1 */
-
+    /* ★2026-07-31：把 SPI2 三支腳補上上拉。
+     *
+     * SPI1（SD）本來就是 GPIO_PULLUP，只有 SPI2 是 NOPULL —— 兩條匯流排
+     * 同一顆 MCU、同樣的用法，設定卻不一致，看起來是漏掉而不是刻意的。
+     *
+     * 真正的理由是 MISO(PB14)：兩顆感測器沒被選到時都會把 MISO 放掉，
+     * 這條線就浮著。而已知現象是「BMP 間歇 —— 敲擊 SPI2 焊點可重現」。
+     *
+     *   浮接 + 焊點接觸不良 → 讀到【隨機值】，而隨機值有機會長得像合法資料
+     *                        （WHO_AM_I 剛好撞中、氣壓值看起來還行）
+     *   上拉 + 焊點接觸不良 → 讀到【0xFF】，固定、明顯、抓得到
+     *
+     * 也就是說這個改動不會讓壞掉的焊點變好，但會讓它【壞得誠實】：
+     * WHO_AM_I 讀到 0xFF 就是 init 失敗 → mod.bmp585=0 → 不對稱降級
+     * 會關掉開傘主路徑退到 C 備援，而不是拿一個假的氣壓值去判高度。
+     *
+     * SCK/MOSI 是推挽輸出，上拉對它們沒有作用，一起設是為了少一次
+     * HAL_GPIO_Init 呼叫、也維持與 SPI1 一致。
+     * 速度代價：被選到時感測器主動驅動 MISO，上拉不參與；沒被選到時
+     * 沒人在讀。5.25MHz 下不受影響。 */
+    GPIO_InitTypeDef pull2 = {0};
+    pull2.Pin       = SEN_SCK_Pin|SEN_MISO_Pin|SEN_MOSI_Pin;
+    pull2.Mode      = GPIO_MODE_AF_PP;
+    pull2.Pull      = GPIO_PULLUP;
+    pull2.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    pull2.Alternate = GPIO_AF5_SPI2;
+    HAL_GPIO_Init(GPIOB, &pull2);
   /* USER CODE END SPI2_MspInit 1 */
   }
 }

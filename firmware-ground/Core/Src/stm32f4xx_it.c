@@ -75,7 +75,13 @@ void NMI_Handler(void)
 
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
-   while (1)
+  /* ★2026-07-31：原本也是 while(1){}。
+   * 火箭端的 NMI 刻意保留「返回」語意 —— 那裡開了 CSS，HSE 失效時
+   * 會走 NMI 降級到 HSI，必須能繼續飛。
+   * 地面端沒有那個需求：這裡收不到東西就等於任務失敗，重開機
+   * 至少有機會回來。 */
+  NVIC_SystemReset();
+  while (1)
   {
   }
   /* USER CODE END NonMaskableInt_IRQn 1 */
@@ -89,6 +95,16 @@ void HardFault_Handler(void)
   /* USER CODE BEGIN HardFault_IRQn 0 */
 
   /* USER CODE END HardFault_IRQn 0 */
+  /* ★2026-07-31：原本是 while(1){} —— 進來就永遠不出去。
+   * 這塊是地面接收端。它卡死的時候，電腦上的 COM port 還在、
+   * 檔案還在、什麼錯誤都沒有，只是【再也不會有資料進來】——
+   * 和「LoRa 收不到訊號」的表徵一模一樣，現場根本分不出來。
+   * 而 SD 已實測救不回來，遙測是唯一的飛行資料。
+   *
+   * 重開機約 200ms + USB 重新列舉。地面站 communicator 有
+   * 重連迴圈（retry_interval=5s，max_retries=10000），所以
+   * 最多損失幾秒的遙測，而不是整趟。 */
+  NVIC_SystemReset();
   while (1)
   {
     /* USER CODE BEGIN W1_HardFault_IRQn 0 */
@@ -104,6 +120,16 @@ void MemManage_Handler(void)
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
 
   /* USER CODE END MemoryManagement_IRQn 0 */
+  /* ★2026-07-31：原本是 while(1){} —— 進來就永遠不出去。
+   * 這塊是地面接收端。它卡死的時候，電腦上的 COM port 還在、
+   * 檔案還在、什麼錯誤都沒有，只是【再也不會有資料進來】——
+   * 和「LoRa 收不到訊號」的表徵一模一樣，現場根本分不出來。
+   * 而 SD 已實測救不回來，遙測是唯一的飛行資料。
+   *
+   * 重開機約 200ms + USB 重新列舉。地面站 communicator 有
+   * 重連迴圈（retry_interval=5s，max_retries=10000），所以
+   * 最多損失幾秒的遙測，而不是整趟。 */
+  NVIC_SystemReset();
   while (1)
   {
     /* USER CODE BEGIN W1_MemoryManagement_IRQn 0 */
@@ -119,6 +145,16 @@ void BusFault_Handler(void)
   /* USER CODE BEGIN BusFault_IRQn 0 */
 
   /* USER CODE END BusFault_IRQn 0 */
+  /* ★2026-07-31：原本是 while(1){} —— 進來就永遠不出去。
+   * 這塊是地面接收端。它卡死的時候，電腦上的 COM port 還在、
+   * 檔案還在、什麼錯誤都沒有，只是【再也不會有資料進來】——
+   * 和「LoRa 收不到訊號」的表徵一模一樣，現場根本分不出來。
+   * 而 SD 已實測救不回來，遙測是唯一的飛行資料。
+   *
+   * 重開機約 200ms + USB 重新列舉。地面站 communicator 有
+   * 重連迴圈（retry_interval=5s，max_retries=10000），所以
+   * 最多損失幾秒的遙測，而不是整趟。 */
+  NVIC_SystemReset();
   while (1)
   {
     /* USER CODE BEGIN W1_BusFault_IRQn 0 */
@@ -134,6 +170,16 @@ void UsageFault_Handler(void)
   /* USER CODE BEGIN UsageFault_IRQn 0 */
 
   /* USER CODE END UsageFault_IRQn 0 */
+  /* ★2026-07-31：原本是 while(1){} —— 進來就永遠不出去。
+   * 這塊是地面接收端。它卡死的時候，電腦上的 COM port 還在、
+   * 檔案還在、什麼錯誤都沒有，只是【再也不會有資料進來】——
+   * 和「LoRa 收不到訊號」的表徵一模一樣，現場根本分不出來。
+   * 而 SD 已實測救不回來，遙測是唯一的飛行資料。
+   *
+   * 重開機約 200ms + USB 重新列舉。地面站 communicator 有
+   * 重連迴圈（retry_interval=5s，max_retries=10000），所以
+   * 最多損失幾秒的遙測，而不是整趟。 */
+  NVIC_SystemReset();
   while (1)
   {
     /* USER CODE BEGIN W1_UsageFault_IRQn 0 */
