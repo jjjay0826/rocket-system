@@ -34,7 +34,19 @@ extern UART_HandleTypeDef huart1;
  * 干擾。M0/M1 硬接地時只能拆下模組、接 USB-TTL、開上位機才改得了頻率，
  * 比賽現場來不及；接到 GPIO 後地面站打一行指令就換完。
  */
-#define LORA_MODE_PINS      /* 2026-07-27 啟用：兩塊板的 M0/M1 已切離 GND 改接 MCU */
+/* ★2026-08-01 關閉 —— M0/M1 【實際上還硬接在 GND】。
+ * 原註解寫「2026-07-27 已切離 GND 改接 MCU」，經現場確認是錯的。
+ *
+ * 🔴 開著會打壞 MCU：韌體把 PB7/PB5 設成推挽輸出。平常寫 LOW，對地
+ *   短路沒有電流、無害；但 /setch 會把兩支同時拉 HIGH 200~700ms，
+ *   那是 3.3V 直接短路到地 —— 輸出級 R_ds(on) 約 25~50Ω，每支腳約 82mA，
+ *   而 STM32F411 單腳絕對最大值是 25mA。超標 3.3 倍。
+ * 而且換頻根本不會成功：模組端 M0/M1 實體仍是 0，從沒進設定模式，
+ *   那串 C0 05 01 xx 被當成一般資料發到空中，回應對不上 → 回 -1。
+ *
+ * 關掉之後 LoRa_ModePinsInit 變成空操作，PB7/PB5 維持重置後的狀態；
+ * LoRa_SetChannel 直接回 -2（硬體未接 M0/M1），是誠實的失敗。*/
+// #define LORA_MODE_PINS
 
 #ifdef LORA_MODE_PINS
 #define LORA_M0_PORT  GPIOB

@@ -172,7 +172,13 @@ extern SPI_HandleTypeDef hspi2;
  *    地面站誤報「保險絲熔斷」，也可能落在高處 → 誤報「已武裝」。兩種都是
  *    比沒有功能更糟的假訊號。停用時遙測送 -1（＝本板無此量測能力），
  *    地面站完全不顯示。硬體裝好後取消註解、重編燒錄即可。 */
-#define PYRO_ADC_FITTED     /* 2026-07-27 啟用：兩組 22k/10k/0.1uF 分壓已焊上 */
+/* ★2026-08-01 關閉 —— 分壓【實際上沒有焊】。
+ * 原註解寫「2026-07-27 已焊上」，經現場確認是錯的。
+ * 開著的話 PB0/PB1 讀到浮接雜訊（0.0~0.5V），遙測會把它當成真實電壓送出去
+ * —— 而 5.0V 以下就是「保險絲熔斷」，等於永久謊報一個最該告警的故障。
+ * 關掉之後 PyroADC_Init 直接 return，v_fuse/v_arm 維持 -1，
+ * 遙測送 -1 =「沒有量測能力」，與「量到 0V＝熔斷」明確區分。*/
+// #define PYRO_ADC_FITTED
 
 static uint8_t  pyro_adc_ok = 0;      /* ADC 初始化成功旗標 */
 static float    v_fuse      = -1.0f;  /* PB1 保險絲後端電壓（-1=尚未量測）*/
@@ -762,7 +768,10 @@ static inline uint8_t gnd_test_active(void)
  * ★ 復原＝把下面這行註解掉重編譯（#warning 會在每次編譯提醒；開機
  *   訊息也會廣播 UNRESTRICTED 警示，防止帶著解禁版上天）。
  * ═══════════════════════════════════════════════════════════════════════ */
-#define REMOTE_CMD_UNRESTRICTED
+/* ★2026-08-01 發射前關閉。開著時 dpl/abg 沒有任何閘門 —— 不需要 ARM、
+ * 不管飛行狀態、可無限重複點火。那是桌測用的。
+ * 關閉後恢復：IDLE 需先 ARM、離架後 10 秒內拒收、已開傘/已落地拒收。*/
+// #define REMOTE_CMD_UNRESTRICTED
 #ifdef REMOTE_CMD_UNRESTRICTED
 #warning "REMOTE_CMD_UNRESTRICTED is ACTIVE - dpl/abg have NO safety gates. NOT FLIGHT SAFE."
 #endif
