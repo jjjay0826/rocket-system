@@ -221,15 +221,48 @@ manual_armed    = 1;
 字串本身就是驗證（24 字元，同頻他隊或雜訊發不出來）。要求兩步會在最需要
 它的時候多花 0.7 秒×2。
 
+#### ★ 地面上：ARM 窗口內可以【重複】測試（2026-08-01）
+
+`IDLE` 且已 ARM 時，`/dpl` 與 `FIRE <碼>` 都走**裸脈衝** ——
+只拉腳、**不推狀態機、也不解除 ARM**。
+
+```
+/arm            → FIRE 0473 within 30s
+/dpl            → 點火（1 秒脈衝）    ← 量電壓
+/dpl            → 再一次              ← 換人看
+/dpl            → 再一次              ← 拍照存證
+   ...30 秒內想測幾次都可以
+```
+
+**為什麼需要這個**：走正常路徑的話 `flight_state` 會被推進
+`DEPLOYING → DEPLOYED →（靜止 10 秒）→ LANDED`，而 **LANDED 是終點、回不去**
+—— 一次上電只能測一發，之後全部回 `already deployed / landed`。
+桌測要量兩支腳的電壓、要驗上行鏈路、要換人確認，一發不夠。
+
+**這不是把解禁模式開回來。** 那個版本【完全沒有閘門】；這裡：
+
+| 條件 | 效果 |
+|---|---|
+| **必須先 ARM** | 刻意動作，30 秒後自動失效 |
+| **必須在 IDLE** | 離架偵測一成立（2.5g×200ms）這條路就消失，<br>之後只剩會推狀態機的正常路徑 |
+| 脈衝進行中不重複觸發 | `dpl_pulse_active` 擋著 |
+
+火箭的回應會標明是哪一種：
+
+```
+地面測試  MSG SUCCESS Parachute deployed successfully (ground test - repeatable while ARM holds)
+飛行中    MSG SUCCESS Parachute deployed successfully
+```
+
 #### 什麼會讓 ARM 失效
 
 | 觸發 | 位置 |
 |---|---|
 | 窗口逾時 | `ManualDeploy_Poll` 每輪主迴圈檢查 |
 | **`SAFE` 指令** | 立刻解除，回 `MANUAL SAFE (disarmed)` |
-| `FIRE` 成功點火 | 點完就解除，不會連發 |
+| `FIRE` 成功點火 | **飛行中**點完就解除；**地面（IDLE）不解除**，見上一節 |
 | `FIRE` 碼過期／已開傘／已落地 | 一併解除，強迫重新 ARM |
-| 遠端 `/dpl` 成功 | 解除 |
+| 遠端 `/dpl` 成功 | **飛行中**解除；**地面（IDLE）不解除** |
 
 ★ **`FIRE` 打錯碼【不會】解除 ARM** —— 只回 `wrong code`，窗口繼續。
 打錯字不用重來。

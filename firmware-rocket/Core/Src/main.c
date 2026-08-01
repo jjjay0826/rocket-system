@@ -964,6 +964,33 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
         deploy_fire_on();
         reply("MSG SUCCESS Parachute deployed successfully\r\n");
 #else
+        /* ★2026-08-01：地面測試要能【重複】。
+         *
+         * 走正常路徑的話 flight_state 會被推進 DEPLOYING → DEPLOYED →
+         * （靜止 10 秒）→ LANDED，而 LANDED 是終點狀態、回不去 ——
+         * 一次上電只能測一發，之後全部回「already deployed / landed」。
+         * 桌測要量兩支腳的電壓、要驗上行鏈路、要換人看，一發不夠。
+         *
+         * 所以在【IDLE 且已 ARM】時改走裸脈衝：只拉腳、不動狀態機、
+         * 也不解除 ARM，所以 ARM 的 30 秒窗口內可以一直測。
+         *
+         * 這不是把解禁模式開回來 —— 那個版本【完全沒有閘門】。這裡：
+         *   · 必須先 ARM（刻意動作，30 秒後自動失效）
+         *   · 必須在 IDLE —— 離架偵測一成立（2.5g×200ms）這條路就消失，
+         *     之後只剩下面那條會推狀態機的正常路徑
+         *   · 脈衝進行中不重複觸發（dpl_pulse_active 擋著）
+         * 訊息保留 "successfully" 字樣，地面站的下行確認才會亮。 */
+        if (flight_state == FLIGHT_IDLE) {
+          if (dpl_pulse_active) { reply("MSG WARN Deploy pulse already active
+"); return; }
+          dpl_pulse_active = 1;
+          dpl_pulse_ms     = HAL_GetTick();
+          deploy_fire_on();
+          reply("MSG SUCCESS Parachute deployed successfully "
+                "(ground test - repeatable while ARM holds)
+");
+          return;
+        }
         if (flight_state == FLIGHT_DEPLOYING || flight_state == FLIGHT_DEPLOYED) {
           /* 語意上這是「傘已經開了」＝好消息，不是失敗。burst 的第 2~4 發
            * 必然命中這裡；若 SUCCESS 那幀掉包，地面站只會看到這句，因此
@@ -1009,7 +1036,20 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     if (flight_state == FLIGHT_LANDED) {
       manual_armed = 0; reply("MSG WARN REJECT already landed\r\n"); return;
     }
-    /* ── 全數通過：點火（走自動開傘同一 DEPLOYING 路徑）── */
+    /* ★2026-08-01：IDLE 時同樣走裸脈衝（理由見上面 /dpl 那段）。
+     * ARM 不解除 → 同一個四位數碼在窗口內可以重複 FIRE。 */
+    if (flight_state == FLIGHT_IDLE) {
+      if (dpl_pulse_active) { reply("MSG WARN Deploy pulse already active
+"); return; }
+      dpl_pulse_active = 1;
+      dpl_pulse_ms     = HAL_GetTick();
+      deploy_fire_on();
+      reply("MSG SUCCESS Parachute deployed successfully "
+            "(ground test - repeatable while ARM holds)
+");
+      return;
+    }
+    /* ── 飛行中：走自動開傘同一 DEPLOYING 路徑 ── */
     manual_armed   = 0;
     deploy_time_ms = HAL_GetTick();
     flight_state   = FLIGHT_DEPLOYING;
