@@ -31,38 +31,59 @@ C0,00,09,00,00,00,64,20,48,03,00,00,
 
 ---
 
-## 🔴 `protocol.h` 目前是裝飾品
+## `protocol.h` 沒有被 `#include`，但**它是同步的**
 
-**沒有任何 `.c` 檔 `#include` 它。**
+先講清楚，因為這件事很容易誤解：
+
+| | |
+|---|---|
+| 有任何 `.c` `#include` 它嗎？ | **沒有** |
+| 那它跟實際封包一致嗎？ | **一致，而且是自動驗證的** |
 
 - 火箭端的封包格式**寫死在** `firmware-rocket/Core/Src/main.c:1984`（有 GPS）
   與 `:1993`（無 GPS）
-- 地面端韌體**根本不解析** —— `lora_bridge.c` 是純 UART 透傳，
-  真正的解析在 PC 端軟體，而那份**不在這個 repo 裡**
-- `firmware-ground/Core/Src/main.c:20` 只在**註解**裡提到它
+- `firmware-ground` **不解析** —— `lora_bridge.c` 是純 UART 透傳
+- 真正的解析器在**另一個 repo**：
+  [`rocket_system_ground_side`](https://github.com/jjjay0826/rocket_system_ground_side)
+  的 `src/core/models.py`
 
-而且它已經和實際封包脫節：缺 `SQ`、`VF`、`VA` 與 GPS 欄位（2026-07 之後才加的）。
+### ★ 同步是靠一支跨 repo 測試
 
-**所以「monorepo 保證協定兩端同步」目前沒有任何機制在保證。**
+`rocket_system_ground_side/tests/test_crossrepo_protocol.py`
+**直接讀 `firmware-rocket/Core/Src/main.c`**，把 `snprintf` 的格式字串抓出來，
+逐項比對。它驗的不是「我以為的格式」，是**韌體原始碼本身**：
 
-### ★ 但權威來源其實已經定案了 —— 只是定在另一個 repo 裡
+```
+✓ 從 main.c 抓到兩種封包格式（有/無 GPS）
+✓ protocol.h 的 RKT_LORA_TX_FMT_GPS   與 main.c 逐字相同
+✓ protocol.h 的 RKT_LORA_TX_FMT_NOGPS 與 main.c 逐字相同
+✓ 韌體狀態機共 5 個狀態 / 狀態順序
+✓ ★ARM / DPL / CAL / GND / GND_OFF / ABG token 與韌體逐字相同
+✓ ★點傘一律走 deploy_fire_on()（PA0+PA1 同時）
+✓ 自動開傘訊息不含 'successfully'（不誤觸下行確認）
+                                        RESULT PASS  26/26
+```
 
-地面站軟體（[jjjay0826/rocket_system_ground_side](https://github.com/jjjay0826/rocket_system_ground_side)）
-的 `doc/telemetry_format.md` 開頭寫著：
+2026-08-04 對修復後的 `main.c` 重跑：**26/26 通過**，
+`protocol.h` 含 `SQ`／`VF`／`VA`／`LAT`／`LON`／`C:` 全部欄位。
 
-> 權威來源：發送端格式字串寫死在 `firmware-rocket/Core/Src/main.c` 的 `lora_pkt` snprintf；
-> C 語言版的契約在 `rocket-system/shared/protocol.h`；解析器在 `src/core/models.py`。
+### ⚠ 這個機制的真正弱點
+
+不是「沒同步」，而是**位置與執行方式**：
+
+1. **沒有 CI。**測試要手動跑 —— 只改韌體、沒 clone 地面站 repo 的人，
+   完全不會知道有這支測試存在。
+2. **它住在另一個 repo。**從 `rocket-system` 這邊看不到。
+
+**所以：改 `main.c` 的封包格式或指令字串之後，一定要跑它：**
+
+```bash
+cd rocket_system_ground_side
+python tests/test_crossrepo_protocol.py     # 只跑跨 repo 協定
+python tests/run_all.py                     # 全部 14 支
+```
+
+它會自動找 `rocket-system`，找不到就設環境變數 `ROCKET_FIRMWARE_REPO`。
+
+> 權威順序（寫在 `rocket_system_ground_side/doc/telemetry_format.md`）：
 > **三者不一致時，以 `main.c` 為準。**
-
-所以規則是清楚的：**`main.c` 說了算。**剩下的問題只是 `protocol.h` 該怎麼處理：
-
-| 選項 | |
-|---|---|
-| **補完並讓火箭端真的 `#include`** | 一勞永逸，但要動飛行韌體 |
-| **刪掉**，在 README 明講真實來源是 `main.c:1984` | 零風險，誠實 |
-
-**留著不同步是最糟的選項** —— 它看起來像真的。
-
-> ⚠ 封包格式**橫跨兩個 repo**：改 `main.c` 的格式字串時，
-> `rocket_system_ground_side/src/core/models.py` 的解析器必須同步改。
-> 這是 monorepo 沒能涵蓋到的接縫。見 [../doc/where_is_everything.md](../doc/where_is_everything.md)。

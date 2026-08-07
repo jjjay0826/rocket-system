@@ -68,16 +68,27 @@ python main.py
 | `doc/architecture.md`、`walkthrough.md` | 架構與操作導覽 |
 | `logs/`、`data/` | 執行時產生的記錄 |
 
-### ★ 封包格式的權威來源已經定案了
+### ★★ 這個 repo 裡有一支測試會去讀韌體的 `main.c`
 
-`rocket_system_ground_side/doc/telemetry_format.md` 開頭寫著:
+`tests/test_crossrepo_protocol.py` **直接讀 `firmware-rocket/Core/Src/main.c`**,
+把 `snprintf` 的格式字串抓出來,與 `shared/protocol.h` 的巨集、與地面站自己的
+解析器逐字比對。它驗的不是「我以為的格式」,是韌體原始碼本身。
 
-> 權威來源:發送端格式字串寫死在 `firmware-rocket/Core/Src/main.c` 的 `lora_pkt` snprintf;
-> C 語言版的契約在 `rocket-system/shared/protocol.h`;解析器在 `src/core/models.py`。
-> **三者不一致時,以 `main.c` 為準。**
+2026-08-04 對修復後的韌體重跑:**26/26 通過**,全套 14 支測試也全過。
 
-也就是說封包格式**同時存在三個地方**,而規則是 `main.c` 說了算。
-`shared/protocol.h` 目前沒有任何 `.c` include 它,詳見 [../shared/README.md](../shared/README.md)。
+```bash
+cd rocket_system_ground_side
+python tests/test_crossrepo_protocol.py     # 只跑跨 repo 協定
+python tests/run_all.py                     # 全部 14 支
+```
+
+它會自動找 `rocket-system`,找不到就設環境變數 `ROCKET_FIRMWARE_REPO`。
+
+> ⚠ **沒有 CI**,而且測試住在**地面站 repo**。
+> 只改韌體、沒 clone 這邊的人不會知道它存在 —— 這是這個機制唯一的弱點。
+> **改 `main.c` 的封包格式或指令字串之後,一定要跑它。**
+
+權威順序寫在 `doc/telemetry_format.md`:三者不一致時,**以 `main.c` 為準**。
 
 ---
 

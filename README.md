@@ -61,8 +61,14 @@ N=<seq> T=<ms> P=<氣壓> RH=<相對高m> KH=<Kalman高m> G=<總G> S=<ID|LA|DP|D
 
 完整欄位語意、狀態碼、解析格式見 [`shared/protocol.h`](shared/protocol.h)。
 
-> ⚠ 目前兩端尚未實際 `#include shared/protocol.h`（發送端格式寫死在 `main.c`、接收端有自己的解析碼）。
-> 讓兩端改用 `protocol.h` 的巨集是建議的下一步，採用後才真正得到協定同步保證。
+> **兩端都沒有實際 `#include shared/protocol.h`**（發送端格式寫死在 `main.c:1984`／`:1993`，
+> 接收端有自己的解析碼），**但契約是自動驗證的** —— 地面站 repo 的
+> `tests/test_crossrepo_protocol.py` 直接讀 `main.c`，把格式字串抓出來與
+> `protocol.h` 的巨集逐字比對（2026-08-04 重跑 26/26 通過）。
+>
+> ⚠ 但**沒有 CI**，而且那支測試住在**另一個 repo**。
+> **改封包格式或指令字串之後一定要跑：** `cd rocket_system_ground_side && python tests/run_all.py`
+> 細節見 [`shared/README.md`](shared/README.md)。
 
 ## 開發 / 編譯
 

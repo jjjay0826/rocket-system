@@ -152,14 +152,24 @@ reply("MSG WARN Deploy pulse already active
 完整清單與搬進版控的指令見 [where_is_everything.md](where_is_everything.md)。
 **沒有這 4 MB,`doc/` 裡所有分析都無法重跑、無法查核。**
 
-### 3. `shared/protocol.h` 是裝飾品
+### 3. 🟠 協定同步機制沒有 CI,而且住在另一個 repo
 
-**沒有任何 `.c` 檔 include 它。**火箭端格式寫死在 `main.c:1984`／`:1993`,
-地面端韌體根本不解析(它是純 UART 透傳,真正的解析在 PC 端軟體,而那份不在 repo 裡)。
-而且它已經缺了 `SQ`／`VF`／`VA`／GPS 欄位。
+`shared/protocol.h` 沒有被任何 `.c` `#include`,但**它是同步的** ——
+地面站 repo 有一支 `tests/test_crossrepo_protocol.py`,**直接讀 `main.c`**
+把格式字串抓出來逐字比對(2026-08-04 重跑 26/26 通過)。
 
-**所以「monorepo 保證協定兩端同步」目前沒有任何機制在保證。**
-完整說明與兩個選項見 [../shared/README.md](../shared/README.md)。
+問題不是「沒同步」,是:
+
+1. **沒有 CI**,要手動跑
+2. **它在另一個 repo** —— 只改韌體的人根本不知道有這支測試
+
+**改 `main.c` 的封包格式或指令字串後,一定要跑:**
+
+```bash
+cd rocket_system_ground_side && python tests/run_all.py
+```
+
+完整說明見 [../shared/README.md](../shared/README.md)。
 
 ---
 
