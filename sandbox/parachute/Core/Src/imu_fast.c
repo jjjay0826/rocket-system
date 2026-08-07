@@ -64,7 +64,9 @@ static void mahony_isr(float ax, float ay, float az,
                        float kp, float ki)
 {
     float n = sqrtf(ax*ax + ay*ay + az*az);
-    if (n >= 0.001f) {
+    /* ★2026-08-07：|a| 閘取代舊的「只擋除以零」。理由與實測後果見 imu_fast.h。
+     * 帶外時只跳過姿態校正，下面的陀螺積分照跑（本來就是這個結構）。*/
+    if (n > MAH_ACC_GATE_LO && n < MAH_ACC_GATE_HI) {
         n = 1.0f / n;
         ax *= n; ay *= n; az *= n;
 

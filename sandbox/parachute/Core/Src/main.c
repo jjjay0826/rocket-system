@@ -254,19 +254,26 @@ static void mahony_update(float ax,float ay,float az,
                           float gx,float gy,float gz,float dt)
 {
   float n=sqrtf(ax*ax+ay*ay+az*az);
-  if(n<0.001f)return;
-  n=1.f/n; ax*=n;ay*=n;az*=n;
 
-  float vx=2.f*(q1*q3-q0*q2);
-  float vy=2.f*(q0*q1+q2*q3);
-  float vz=q0*q0-q1*q1-q2*q2+q3*q3;
+  /* ★2026-08-07：|a| 閘取代舊的 `if(n<0.001f)return;`。理由與實測後果見 imu_fast.h。
+   * 舊版那個 return 會連下面的陀螺積分一起跳過 —— 自由落體時姿態直接凍結。
+   * 現在帶外只跳過校正，積分永遠會跑。
+   * 這支只在開機收斂/校準時被呼叫（靜止，|a|≈1 g），投放中跑的是
+   * imu_fast.c 的 mahony_isr()；兩邊用同一組常數，避免日後改一邊漏一邊。*/
+  if (n > MAH_ACC_GATE_LO && n < MAH_ACC_GATE_HI) {
+    n=1.f/n; ax*=n;ay*=n;az*=n;
 
-  float ex=ay*vz-az*vy;
-  float ey=az*vx-ax*vz;
-  float ez=ax*vy-ay*vx;
+    float vx=2.f*(q1*q3-q0*q2);
+    float vy=2.f*(q0*q1+q2*q3);
+    float vz=q0*q0-q1*q1-q2*q2+q3*q3;
 
-  mah_ix+=ex*MAH_2KI*dt; mah_iy+=ey*MAH_2KI*dt; mah_iz+=ez*MAH_2KI*dt;
-  gx+=MAH_2KP*ex+mah_ix; gy+=MAH_2KP*ey+mah_iy; gz+=MAH_2KP*ez+mah_iz;
+    float ex=ay*vz-az*vy;
+    float ey=az*vx-ax*vz;
+    float ez=ax*vy-ay*vx;
+
+    mah_ix+=ex*MAH_2KI*dt; mah_iy+=ey*MAH_2KI*dt; mah_iz+=ez*MAH_2KI*dt;
+    gx+=MAH_2KP*ex+mah_ix; gy+=MAH_2KP*ey+mah_iy; gz+=MAH_2KP*ez+mah_iz;
+  }
 
   gx*=0.5f*dt; gy*=0.5f*dt; gz*=0.5f*dt;
   float qa=q0,qb=q1,qc=q2;
