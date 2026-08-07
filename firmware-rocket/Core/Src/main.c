@@ -976,19 +976,18 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
          *
          * 這不是把解禁模式開回來 —— 那個版本【完全沒有閘門】。這裡：
          *   · 必須先 ARM（刻意動作，30 秒後自動失效）
-         *   · 必須在 IDLE —— 離架偵測一成立（2.5g×200ms）這條路就消失，
-         *     之後只剩下面那條會推狀態機的正常路徑
+         *   · 必須在 IDLE —— 離架偵測一成立（2.5g×200ms）這條路就消失
          *   · 脈衝進行中不重複觸發（dpl_pulse_active 擋著）
-         * 訊息保留 "successfully" 字樣，地面站的下行確認才會亮。 */
+         * 訊息保留 successfully 字樣，地面站的下行確認才會亮。 */
         if (flight_state == FLIGHT_IDLE) {
-          if (dpl_pulse_active) { reply("MSG WARN Deploy pulse already active
-"); return; }
+          if (dpl_pulse_active) {
+            reply("MSG WARN Deploy pulse already active\r\n");
+            return;
+          }
           dpl_pulse_active = 1;
           dpl_pulse_ms     = HAL_GetTick();
           deploy_fire_on();
-          reply("MSG SUCCESS Parachute deployed successfully "
-                "(ground test - repeatable while ARM holds)
-");
+          reply("MSG SUCCESS Parachute deployed successfully (ground test - repeatable while ARM holds)\r\n");
           return;
         }
         if (flight_state == FLIGHT_DEPLOYING || flight_state == FLIGHT_DEPLOYED) {
@@ -1039,14 +1038,14 @@ void ManualDeploy_HandleLine(const char *line, void (*reply)(const char *))
     /* ★2026-08-01：IDLE 時同樣走裸脈衝（理由見上面 /dpl 那段）。
      * ARM 不解除 → 同一個四位數碼在窗口內可以重複 FIRE。 */
     if (flight_state == FLIGHT_IDLE) {
-      if (dpl_pulse_active) { reply("MSG WARN Deploy pulse already active
-"); return; }
+      if (dpl_pulse_active) {
+        reply("MSG WARN Deploy pulse already active\r\n");
+        return;
+      }
       dpl_pulse_active = 1;
       dpl_pulse_ms     = HAL_GetTick();
       deploy_fire_on();
-      reply("MSG SUCCESS Parachute deployed successfully "
-            "(ground test - repeatable while ARM holds)
-");
+      reply("MSG SUCCESS Parachute deployed successfully (ground test - repeatable while ARM holds)\r\n");
       return;
     }
     /* ── 飛行中：走自動開傘同一 DEPLOYING 路徑 ── */
