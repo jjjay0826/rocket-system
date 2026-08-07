@@ -142,6 +142,31 @@ static inline void deploy_fire_off(void)
                                    * （推力段氣壓是垃圾，禁止對齊，全信 IMU）*/
 #define KF2_AZ_CLAMP     160.0f   /* lin_az sanity 限幅 (m/s²,≈±16g)
                                    * 只擋解碼錯誤，不砍真實推力（不可設 ±3g！）*/
+
+/* ── ★2026-08-07：2026-08-01 飛行後的估計器修正 ────────────────────
+ * 實測：ch2 在主傘開傘衝擊(5.62g)後一包，KH 比純氣壓 RH 高 22.3 m。
+ * ch1 在拖曳傘衝擊時也有 +10.5 m。平時只有 ±2~4 m。
+ *
+ * 機制是兩個設計決策相乘：
+ *   ① mahony_update() 把【任何】加速度向量正規化後當成重力方向。
+ *      6 g 的開傘衝擊裡，量到的主要是那個外力，姿態因此被拉向外力方向
+ *      → world_az() 錯 → lin_az 錯 → KF 積分垃圾。
+ *   ② 同一瞬間 total_g>2 使 R 膨脹 25 倍、total_g>1.5 使大偏差重置關閉
+ *      → 唯一能抓到①的機制，正好在誤差產生的當下被關掉。
+ *
+ * 下面四個常數對應四項修正，詳見各自的使用點。 */
+#define MAH_ACC_GATE_LO   0.85f   /* ★① Mahony 只在 |a| 落在這個帶內才用加速度計
+                                   * 校正姿態（單位 g）。帶外＝純陀螺推進。
+                                   * 推力段 5g、開傘衝擊 6g 都會被擋在帶外。*/
+#define MAH_ACC_GATE_HI   1.15f
+#define KF2_BOOST_MARGIN_MS 2000UL /* ★② R 膨脹改用「飛行階段＋時間」而非瞬時 g。
+                                    * 氣壓不可信的真正原因是穿音速與推力段震動，
+                                    * 不是「g 很大」——開傘衝擊時只有 40 m/s 次音速。
+                                    * 燃燒約 3s，離架後 3s+此餘裕內才膨脹 R。*/
+#define KF2_BOOST_WINDOW_MS 5000UL /* 離架後多久之內視為推力/穿音速段 */
+#define KF2_DIVERGE_M      15.0f   /* ★④ 發散看門狗：|kf2_h − rel_alt| 超過此值 */
+#define KF2_DIVERGE_MS     1000UL  /*    且持續此久 → 強制對齊，【不看 g】。
+                                    * 就算①②③有漏，也把損害限制在這個範圍。*/
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -572,24 +597,39 @@ static float mah_ix=0.f,mah_iy=0.f,mah_iz=0.f; /* 積分項 */
 static void mahony_update(float ax,float ay,float az,
                           float gx,float gy,float gz,float dt)
 {
-  /* ① 加速度計正規化：轉為單位向量（純方向，大小不影響校正）*/
+  /* ① 合加速度大小（g）。★下面用它決定「這一筆到底是不是重力」。*/
   float n=sqrtf(ax*ax+ay*ay+az*az);
-  if(n<0.001f)return;  /* 近零重力（自由落體）：跳過，避免除零 */
-  n=1.f/n; ax*=n;ay*=n;az*=n;
 
-  /* ② 由當前四元數推算「重力在體座標系的預期方向」（旋轉矩陣第三列）*/
-  float vx=2.f*(q1*q3-q0*q2);
-  float vy=2.f*(q0*q1+q2*q3);
-  float vz=q0*q0-q1*q1-q2*q2+q3*q3;
+  /* ★2026-08-07：|a| 閘 —— 只有在合加速度接近 1 g 時，加速度計量到的
+   * 方向才【是】重力方向。推力段 5 g、開傘衝擊 6 g 的時候，量到的主要是
+   * 那個外力；把它正規化當成「下」，姿態會被整個拉過去。
+   *
+   * 2026-08-01 實測後果：開傘衝擊後 KF 高度比純氣壓高出 22.3 m。
+   *
+   * 帶外時【只跳過姿態校正，仍然照常做陀螺積分】——
+   * 舊版是 `if(n<0.001f) return;`，那會連 ⑤⑥ 一起跳過，
+   * 等於姿態在自由落體時直接凍結。*/
+  if (n > MAH_ACC_GATE_LO && n < MAH_ACC_GATE_HI) {
+    n=1.f/n; ax*=n;ay*=n;az*=n;   /* 正規化為單位向量 */
 
-  /* ③ 加速度計量測值 × 預期重力方向 → 叉積誤差（體座標系下的姿態偏差）*/
-  float ex=ay*vz-az*vy;
-  float ey=az*vx-ax*vz;
-  float ez=ax*vy-ay*vx;
+    /* ② 由當前四元數推算「重力在體座標系的預期方向」（旋轉矩陣第三列）*/
+    float vx=2.f*(q1*q3-q0*q2);
+    float vy=2.f*(q0*q1+q2*q3);
+    float vz=q0*q0-q1*q1-q2*q2+q3*q3;
 
-  /* ④ PI 校正：積分項（I）消除靜態偏差，比例項（P）提供即時修正 */
-  mah_ix+=ex*MAH_2KI*dt; mah_iy+=ey*MAH_2KI*dt; mah_iz+=ez*MAH_2KI*dt;
-  gx+=MAH_2KP*ex+mah_ix; gy+=MAH_2KP*ey+mah_iy; gz+=MAH_2KP*ez+mah_iz;
+    /* ③ 加速度計量測值 × 預期重力方向 → 叉積誤差（體座標系下的姿態偏差）*/
+    float ex=ay*vz-az*vy;
+    float ey=az*vx-ax*vz;
+    float ez=ax*vy-ay*vx;
+
+    /* ④ PI 校正：積分項（I）消除靜態偏差，比例項（P）提供即時修正
+     * ※ 閘外時不累積 mah_i*，否則衝擊期間的假誤差會被積起來，
+     *   等 g 掉回來還要花時間吐出去。*/
+    mah_ix+=ex*MAH_2KI*dt; mah_iy+=ey*MAH_2KI*dt; mah_iz+=ez*MAH_2KI*dt;
+    gx+=MAH_2KP*ex+mah_ix; gy+=MAH_2KP*ey+mah_iy; gz+=MAH_2KP*ez+mah_iz;
+  }
+  /* 閘外：純陀螺推進。代價是推力段約 3 秒沒有姿態校正，
+   * 以陀螺零偏 1 °/s 估累積約 3° —— 遠小於「拿 5 g 推力方向當重力」的錯。*/
 
   /* ⑤ 四元數微分方程積分（半角速度形式，q̇ = 0.5 × q ⊗ ω）*/
   gx*=0.5f*dt; gy*=0.5f*dt; gz*=0.5f*dt;
@@ -676,9 +716,30 @@ static uint8_t  is_boosting  = 0;     /* 是否處於推力段 (BOOST) */
  * 關掉之後由備援 C 接手：C 在 t_det+18s 觸發，81 組模擬實測落在頂點後
  * 0.58~3.80s，比一個漂移中的濾波器可預測得多。這是拿「不確定」換「確定」，
  * 不是失去一條路徑。
- * 兩顆皆死時兩者都是 0（避免立即觸發），同樣只靠 C。 */
+ * 兩顆皆死時兩者都是 0（避免立即觸發），同樣只靠 C。
+ *
+ * ── ★2026-08-07：cond_B 改讀 vz_baro_lp，退化規則隨之簡化 ───────────
+ * 上面那段「氣壓死 → cond_B 不可信」的推論，其實已經說明了一件事：
+ * cond_B 從來就不是獨立於氣壓的。它讀的 kf2_v 是「IMU 積分 ＋ 氣壓修正」，
+ * 氣壓一死它就只剩漂移。所謂 A/B 獨立，是假的。
+ *
+ * 2026-08-01 飛行又證實 kf2_v 本身不可靠：兩塊板的 cond_B 觸發時刻差
+ * 4.5 秒（cond_A 只差 13~36 ms），頂點 KH 兩板差 3.5 m 而純氣壓只差 0.3 m。
+ * 根因見 mahony_update() 的 |a| 閘與 KF2 的 R 膨脹說明。
+ *
+ * 所以 cond_B 改讀 vz_baro_lp（純氣壓微分，τ=1s 低通）：
+ *   · 不經過 Mahony、不經過 IMU 積分 → 不會被開傘衝擊污染
+ *   · A 看「位置」跌破峰值 10 m，B 看「速度」持續向下 1.5 s
+ *     ＝同一顆感測器的兩種不同檢定，不是同一個數字看兩次
+ *   · 氣壓卡住不動 → A 不成立、B 的微分為 0 也不成立 → 一起關門（安全方向）
+ *
+ * 【真正的冗餘來自兩塊完全獨立的板，不是一塊板上的兩顆感測器。】
+ * 2026-08-01 證實了這點：兩次開傘衝擊各只有一塊板錄到。
+ *
+ * 退化規則因此變成：兩條都只看 mod.bmp585。IMU 死掉不再影響開傘主路徑
+ * （反而比舊版更能撐——舊版 IMU 死就要靠 cond_A 單獨守門）。 */
 static inline int deploy_A_eff(void) { return mod.bmp585 ? cond_A : 0; }
-static inline int deploy_B_eff(void) { return mod.imu ? cond_B : (mod.bmp585 ? 1 : 0); }
+static inline int deploy_B_eff(void) { return mod.bmp585 ? cond_B : 0; }
 
 /* ======================================================
    氣壓計 Kalman 濾波器
@@ -1724,16 +1785,11 @@ int main(void)
             float p11 = kf2_p11 + KF2_Q_V;
             kf2_p00 = p00; kf2_p01 = p01; kf2_p11 = p11;
 
-            /* ── 開傘條件 B：KF2 垂直速度持續向下 DEPLOY_VZ_NEG_MS ──
-             * kf2_v < VZ_NEG_THR 持續 1.5s → cond_B = 1
-             * 速度短暫回正（KF 抖動）→ 重置計時 */
-            if (kf2_v < DEPLOY_VZ_NEG_THR) {
-              if (vz_neg_start_ms == 0) vz_neg_start_ms = now;
-              cond_B = ((now - vz_neg_start_ms) >= DEPLOY_VZ_NEG_MS) ? 1 : 0;
-            } else {
-              vz_neg_start_ms = 0;  /* 速度回正：重置計時 */
-              cond_B = 0;
-            }
+            /* ★2026-08-07：cond_B 已從這裡搬到氣壓區塊。
+             * 原因有二：①它改讀 vz_baro_lp，而那是在氣壓區塊算的；
+             * ②這裡在「IMU 讀取成功」分支內，IMU 一死 cond_B 就凍結在
+             * 最後的值不再更新 —— 但新的退化規則說 cond_B 只依賴氣壓。
+             * 兩者矛盾，所以必須搬走。搜尋「開傘條件 B」看新位置。*/
           }
         } else {
           /* IMU 讀取連續失敗 → 標記死亡 */
@@ -1863,7 +1919,7 @@ int main(void)
             rel_alt = 44330.f * (1.f - powf(press / ref_press, 0.1903f));
             if (!cf_init) { cf_init = 1; }
 
-            /* ── 氣壓微分速度（LP τ=1s）：KF2 重置初值 + 交叉驗證 ── */
+            /* ── 氣壓微分速度（LP τ=1s）：★cond_B 的來源 + KF2 重置初值 ── */
             {
               static float   rel_alt_prev   = 0.0f;
               static uint8_t vz_baro_inited = 0;
@@ -1873,6 +1929,27 @@ int main(void)
                 float alpha  = dt_baro / (dt_baro + 1.0f);  /* τ=1s LP */
                 vz_baro_lp  += alpha * (vz_raw - vz_baro_lp);
                 rel_alt_prev = rel_alt;
+              }
+            }
+
+            /* ── 開傘條件 B：垂直速度持續向下 DEPLOY_VZ_NEG_MS ──────────
+             * ★2026-08-07：來源由 kf2_v 改為 vz_baro_lp（純氣壓微分）。
+             * 理由見 deploy_B_eff() 上方的長註解。摘要：kf2_v 會經由 Mahony
+             * 被開傘衝擊污染 —— 2026-08-01 實測兩塊板的 cond_B 觸發時刻差
+             * 4.5 秒，而純氣壓的 cond_A 只差 13~36 ms。
+             *
+             * ★這段必須待在【氣壓區塊】，不能放回 IMU 區塊：新的退化規則說
+             * cond_B 只依賴氣壓，若放在 IMU 區塊，IMU 一死它就凍結不再更新。
+             *
+             * 只在 imu_armed（已離架）後評估，地面靜止時不計時。
+             * 速度短暫回正 → 重置計時，濾掉氣壓雜訊造成的單點跌破。*/
+            if (imu_armed) {
+              if (vz_baro_lp < DEPLOY_VZ_NEG_THR) {
+                if (vz_neg_start_ms == 0) vz_neg_start_ms = now;
+                cond_B = ((now - vz_neg_start_ms) >= DEPLOY_VZ_NEG_MS) ? 1 : 0;
+              } else {
+                vz_neg_start_ms = 0;
+                cond_B = 0;
               }
             }
 
@@ -1895,10 +1972,45 @@ int main(void)
                 kf2_p00 = 4.0f; kf2_p01 = 0.0f; kf2_p11 = 4.0f;
               }
 
+              /* ── ★2026-08-07 ④ 發散看門狗：不看 g，強制對齊 ──────────
+               * 上面那道重置被 total_g<1.5 擋住，所以【高 g 期間發散是無法
+               * 自行回復的】——2026-08-01 開傘衝擊後 KF 高出純氣壓 22.3 m
+               * 就是這樣卡住的。這裡補一條逃生路徑：偏差夠大【且持續夠久】
+               * 就對齊，不管 g。
+               *
+               * 為什麼要「持續夠久」：推力段本來就會有短暫的合理偏差
+               * （氣壓在穿音速時本來就爛），1 秒的持續要求把那些濾掉，
+               * 只留下真正卡住不動的。*/
+              {
+                static uint32_t diverge_start_ms = 0;
+                if (fabsf(rel_alt - kf2_h) > KF2_DIVERGE_M) {
+                  if (diverge_start_ms == 0) diverge_start_ms = now;
+                  else if ((now - diverge_start_ms) >= KF2_DIVERGE_MS) {
+                    kf2_h   = rel_alt;
+                    kf2_v   = vz_baro_lp;
+                    kf2_p00 = 4.0f; kf2_p01 = 0.0f; kf2_p11 = 4.0f;
+                    diverge_start_ms = 0;
+                    cdc_write("WARN: KF2 DIVERGED - realigned to baro\r\n");
+                  }
+                } else {
+                  diverge_start_ms = 0;
+                }
+              }
+
               /* ── KF2 更新步（50Hz，量測=氣壓高度）──────────────
                * H=[1,0]; y=baro-h_pred; S=P00+R; K=P·Hᵀ/S
-               * ★高g 時膨脹 R：推力段震動/穿音速，少信氣壓多信 IMU。*/
-              float r_h = (total_g > 2.0f) ? (KF2_R_H * KF2_R_HIGHG_MULT) : KF2_R_H;
+               *
+               * ★2026-08-07 ② R 膨脹改用「飛行階段＋時間」，不再用瞬時 g。
+               * 舊版是 total_g>2 就膨脹 25 倍。問題在於它把兩件完全不同的事
+               * 混為一談：
+               *   · 推力段：氣壓真的是垃圾（穿音速、震動、高動壓）→ 該少信
+               *   · 開傘衝擊：g 也很大，但當時只有 40 m/s 次音速，氣壓沒那麼糟
+               * 結果衝擊時氣壓修正被關掉，KF 只能開迴路積分被污染的 lin_az。
+               * 改成只在離架後的推力/穿音速窗內膨脹。*/
+              uint8_t in_boost_window =
+                  (imu_armed && (now - launch_time_ms) <
+                   (KF2_BOOST_WINDOW_MS + KF2_BOOST_MARGIN_MS));
+              float r_h = in_boost_window ? (KF2_R_H * KF2_R_HIGHG_MULT) : KF2_R_H;
               float y   = rel_alt - kf2_h;
               float S   = kf2_p00 + r_h;
               float K0  = kf2_p00 / S;
