@@ -11,11 +11,21 @@ simulations」→ 存檔 → 我再分析。OpenRocket 24.12 沒有 headless 模
   · 開傘事件設成固定高度時，低頂點的組別會整組不開傘 —— 改成 apogee，
     與韌體行為（頂點後才開）一致。
 """
-import zipfile, re, pathlib
+import argparse, zipfile, re, pathlib
 
-SRC = r"D:\Downloads\3.0.9.ork"
-OUT = pathlib.Path(r"D:\Downloads\sim_309")
-OUT.mkdir(exist_ok=True)
+# 模型在版控裡（sim/models/），不要再寫死某台電腦的絕對路徑 ——
+# 2026-08 交接時發現這支寫死 D:\Downloads\3.0.9.ork，換一台電腦就跑不動。
+_REPO = pathlib.Path(__file__).resolve().parent.parent
+_ap = argparse.ArgumentParser(description="產生 81 組 OpenRocket 模擬矩陣")
+_ap.add_argument("--ork", default=str(_REPO / "sim" / "models" / "3.0.9.ork"),
+                 help="來源 .ork（預設用 repo 內的 sim/models/3.0.9.ork）")
+_ap.add_argument("--out", default="sim_309", help="輸出目錄")
+_a = _ap.parse_args()
+
+SRC = _a.ork
+OUT = pathlib.Path(_a.out)
+OUT.mkdir(parents=True, exist_ok=True)
+print(f"來源模型 {SRC}\n輸出到   {OUT.resolve()}")
 
 x = zipfile.ZipFile(SRC).read("rocket.ork").decode("utf-8", "ignore")
 
