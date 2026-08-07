@@ -39,9 +39,9 @@
 | 3 | **[flight_161_summary.md](flight_161_summary.md)** 第七節 | 上次飛完得到的六條改進項,前三條是回收系統 |
 | 4 | [../firmware-rocket/doc/e28_b_board_checklist.md](../firmware-rocket/doc/e28_b_board_checklist.md) | B 板換 2.4 GHz E28 的接線與法規 |
 
-> ⚠ **最優先確認的一件事**:`firmware-rocket/Core/Src/main.c` 目前
-> **在 git HEAD 上是編譯不過的**(字串字面值被換行切斷)。修正版在工作區但未 commit。
-> 見本頁最後的「已知的倉庫問題」。
+> ⚠ **發射日守則**:`open_defects_20260801.md` 的 A 段是「做不到就別飛」的項目。
+> 不要在發射日改開傘路徑 —— 那條寫在 `failure_analysis_20260801.md` 裡,
+> 是上一屆的教訓。
 
 ### 「我要知道上次為什麼失敗」
 
@@ -123,34 +123,23 @@ repo 裡一度同時存在三份講同一件事而結論相反的文件。
 
 ---
 
-## 🔴 已知的倉庫問題(下一屆接手時要先處理)
+## 已知的倉庫問題
 
-### 1. `main.c` 在 HEAD 上編譯不過
+### 1. ✅ 已解決:`main.c` 曾在 HEAD 上編譯不過
 
-```bash
-git diff HEAD -- firmware-rocket/Core/Src/main.c
-```
+commit `b0ad361` 有 4 處 C 字串字面值被換行切斷(寫檔時 shell 把 `\r\n`
+當成真的換行處理掉了)。**已於 `f6f4c1d` 修復並推送**,現在 clone 下來編得過。
 
-commit `b0ad361` 裡有 4 處 C 字串字面值被換行切斷(寫檔時 shell 把 `\r\n`
-當成真的換行處理掉了):
+留著這條是因為那個坑會再犯:**用工具寫 C 檔時,`\r\n` 這種跳脫序列很容易
+被中間的 shell 層吃掉。**寫完務必檢查引號與括號是否平衡。
 
-```c
-reply("MSG WARN Deploy pulse already active
-"); return; }
-```
+### 2. ✅ 已解決:原始飛行資料現在在 repo 裡
 
-修正版在工作區,**尚未 commit**。接手第一件事就是確認它編得過再 commit。
+`doc/flightdata/` —— clone 下來就有,不必跟任何人要。逐檔說明見
+[flightdata/README.md](flightdata/README.md)。
 
-### 2. 🔴 原始飛行資料不在 repo 裡(而且只存在一台電腦上)
-
-2026-08-01 的原始 log 在 `D:\Downloads\`,**沒有版控、沒有備份**。
-
-**不可再生的部分總共只有 4 MB**(其餘 714 MB 是可以從 YouTube 重抽的影像幀)。
-其中 `_utc.log` 那兩個最關鍵 —— **只有 UTC 時戳能把兩塊板放到同一條時間軸上**,
-整個失效分析都依賴它。
-
-完整清單與搬進版控的指令見 [where_is_everything.md](where_is_everything.md)。
-**沒有這 4 MB,`doc/` 裡所有分析都無法重跑、無法查核。**
+火箭模型同樣已收進 `sim/models/`(先前 `gen_sim_matrix_309.py` 寫死了
+某台電腦的絕對路徑,換一台就跑不動)。
 
 ### 3. 🟠 協定同步機制沒有 CI,而且住在另一個 repo
 

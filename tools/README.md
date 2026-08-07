@@ -45,10 +45,11 @@ python tools/parse_raw_lora.py <raw_log> --out-dir <輸出目錄>
 
 實例：
 
+原始 log 就在 repo 裡（`doc/flightdata/`），在 repo 根目錄執行：
+
 ```bash
-cd D:\Downloads
-python tools\parse_raw_lora.py raw_ch1_20260801_152419_5e03e520_utc.log --out-dir flight_161_analysis
-python tools\parse_raw_lora.py raw_ch2_20260801_152419_5e03e520_utc.log --out-dir flight_161_analysis
+python tools/parse_raw_lora.py doc/flightdata/20260801/raw_ch1_20260801_152419_5e03e520_utc.log --out-dir out
+python tools/parse_raw_lora.py doc/flightdata/20260801/raw_ch2_20260801_152419_5e03e520_utc.log --out-dir out
 ```
 
 產出兩個檔：
@@ -70,10 +71,9 @@ python tools/flight_report.py <先失聯那塊的csv> <涵蓋全程那塊的csv>
 實例：
 
 ```bash
-cd D:\Downloads\flight_161_analysis
-python ..\..\rocket-system\tools\flight_report.py ^
-    raw_ch1_20260801_152419_5e03e520_utc_parsed.csv ^
-    raw_ch2_20260801_152419_5e03e520_utc_parsed.csv ^
+python tools/flight_report.py \
+    out/raw_ch1_20260801_152419_5e03e520_utc_parsed.csv \
+    out/raw_ch2_20260801_152419_5e03e520_utc_parsed.csv \
     --out flight_161_20260801_report.png --dpi 300
 ```
 

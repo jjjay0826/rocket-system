@@ -10,20 +10,25 @@ STM32F411 火箭航電 **Monorepo**：火箭端（發送）、地面端（接收
 | 你是誰 | 讀哪份 |
 |---|---|
 | **第一次接觸這個專案** | **[`doc/getting_started.md`](doc/getting_started.md)** — 從零開始，20 分鐘，只需要會看 C |
-| **在找檔案** | **[`doc/where_is_everything.md`](doc/where_is_everything.md)** — 東西分散在三處，其中一處沒有版控 |
+| **在找檔案** | **[`doc/where_is_everything.md`](doc/where_is_everything.md)** — 完整檔案地圖，以及「新東西該放哪」 |
 | 已經熟悉，要找特定東西 | [`doc/README.md`](doc/README.md) — 依「你想做什麼」路由，並標明每份文件的狀態 |
 
-> ⚠ **這個 repo 不是全部。**筆電上跑的地面站 GUI 是另一個 repo
-> （[jjjay0826/rocket_system_ground_side](https://github.com/jjjay0826/rocket_system_ground_side)），
-> 飛行原始資料則完全沒有版控。詳見上表第二列。
+> ⚠ **這個 repo 不是全部。整套系統要 clone 兩個：**
+>
+> ```bash
+> git clone https://github.com/jjjay0826/rocket-system.git
+> git clone https://github.com/jx06T/rocket_system_ground_side.git
+> ```
+>
+> 第二個是筆電上跑的地面站 GUI。**認明 `jx06T` 那個帳號是本尊**，
+> `jjjay0826` 底下同名的是 fork。
 
 **這套系統已經實際飛過一次** —— 2026-08-01 旭海，第 161 隊，競賽第三名。
 飛到 833.7 m，開傘在頂點後 1.5 秒準時觸發；失效發生在回收系統的機械端，
 箭體未回收。完整結論：[`doc/flight_161_summary.md`](doc/flight_161_summary.md)。
 
-> 🔴 **接手第一件事**：`firmware-rocket/Core/Src/main.c` 在 git HEAD 上
-> **編譯不過**（4 處 C 字串被換行切斷）。修正版在工作區但未 commit。
-> 詳見 [`doc/README.md`](doc/README.md) 的「已知的倉庫問題」。
+那次的**原始遙測就在 `doc/flightdata/`**，火箭模型在 `sim/models/` —— clone 下來就有，
+不必跟任何人要檔案。
 
 ## 為什麼用 Monorepo
 

@@ -1,19 +1,24 @@
 # 所有檔案在哪裡
 
-**東西不在同一個地方。**一共三處,兩個是 GitHub repo,一個完全沒有版控。
-接手的人第一件事就是把這三處都拿到手。
+**整套系統是兩個 GitHub repo,兩個都要 clone。**
+少任何一個都跑不起來 —— 一個是火箭上的韌體,另一個是筆電上的地面站。
+
+```bash
+git clone https://github.com/jjjay0826/rocket-system.git
+git clone https://github.com/jx06T/rocket_system_ground_side.git
+```
+
+**其他什麼都不需要。**2026-08-01 的原始飛行資料已經收在第一個 repo 的
+`doc/flightdata/`,火箭模型在 `sim/models/` —— 不必跟任何人要檔案。
 
 ---
 
-## 三處總覽
+## 總覽
 
-| # | 位置 | 是什麼 | 版控 | 大小 |
-|---|---|---|---|---|
-| 1 | `Desktop/rocket-system/` | **韌體 monorepo**(火箭端＋地面端 STM32＋分析工具＋文件) | ✅ GitHub | 187 MB |
-| 2 | `Desktop/rocket_system_ground_side/` | **地面站軟體**(筆電上跑的 PyQt GUI) | ✅ GitHub | 15 MB |
-| 3 | `D:\Downloads\` ＋ `D:\Downloads\flight_161_analysis\` | **飛行原始資料與分析產出** | 🔴 **無** | 718 MB |
-
-> `C:\stm32_project` 只是終端機的預設工作目錄,**裡面沒有東西**,不要去那裡找。
+| # | Repo | 是什麼 | 語言 |
+|---|---|---|---|
+| 1 | **`jjjay0826/rocket-system`** | 韌體 monorepo：火箭端＋地面端 STM32、分析工具、文件、飛行資料 | C ＋ Python |
+| 2 | **`jx06T/rocket_system_ground_side`** | 地面站軟體，跑在筆電上的 PyQt GUI | Python |
 
 ---
 
@@ -21,10 +26,6 @@
 
 ```
 https://github.com/jjjay0826/rocket-system
-```
-
-```bash
-git clone https://github.com/jjjay0826/rocket-system.git
 ```
 
 | 資料夾 | 內容 |
@@ -45,16 +46,21 @@ git clone https://github.com/jjjay0826/rocket-system.git
 ## 2. 地面站軟體 —— **另一個 repo**
 
 ```
-https://github.com/jjjay0826/rocket_system_ground_side
+https://github.com/jx06T/rocket_system_ground_side
 ```
+
+> **★ 認明 `jx06T` 這個帳號 —— 那是本尊。**
+> `jjjay0826/rocket_system_ground_side` 是它的 fork,不要拿 fork 當開發基準,
+> 除非你確定它比較新。
 
 目前版本 **v3.4**。PyQt GUI,跑在筆電上:讀序列埠、即時繪圖、OpenGL 顯示火箭姿態、
 Folium 畫經緯度、顯示任務階段。
 
 ```bash
-git clone https://github.com/jjjay0826/rocket_system_ground_side.git
+git clone https://github.com/jx06T/rocket_system_ground_side.git
 cd rocket_system_ground_side
 pip install -r requirements.txt
+cp settings.example.json settings.json     # 改成你的 COM 埠
 python main.py
 ```
 
@@ -92,54 +98,34 @@ python tests/run_all.py                     # 全部 14 支
 
 ---
 
-## 3. 🔴 飛行資料 —— 完全沒有版控
+## 3. 飛行資料 —— **已經在 repo 裡了**
 
-`D:\Downloads\` 與 `D:\Downloads\flight_161_analysis\`。
-**這一處只存在於這台電腦。硬碟壞了就全沒了。**
+`rocket-system/doc/flightdata/`。clone 下來就有,不用找任何人要。
 
-### 不可再生的部分只有 4 MB
+| | |
+|---|---|
+| `20260801/` | 2026-08-01 旭海實飛的**四份原始 log**(3.7 MB) |
+| `20260720_ground_test/` | 2026-07 的三次測試(437 KB) |
 
-| 檔案 | 大小 | |
-|---|---|---|
-| `raw_ch1_20260801_152419_5e03e520.log` | 1.75 MB | 完整原始 log(含發射前 93 分鐘待機) |
-| `raw_ch2_20260801_152419_c212c94f.log` | 1.94 MB | 同上,ch2 |
-| `raw_ch1_..._utc.log` | 15 KB | **★ 帶 UTC 時戳的版本** |
-| `raw_ch2_..._utc.log` | 18 KB | **★ 同上** |
-| `raw_ch1_20260720_*.log`、`20260721_*.log` | 437 KB | 2026-07 的三次地面／飛行測試 |
-| **合計** | **4.0 MB** | |
-
-> **`_utc.log` 那兩個特別重要。**兩塊板各自以「自己判定離架」為時間原點,
+> **`_utc.log` 那兩個是關鍵。**兩塊板各自以「自己判定離架」為時間原點,
 > ch1 比 ch2 晚 0.49 秒。**只有 UTC 時戳能把兩塊板放到同一條時間軸上**,
 > 而 2026-08-01 的整個失效分析(兩次開傘衝擊、自旋時序)完全依賴這件事。
 
-### 可再生的部分(714 MB,不用備份)
+逐檔說明見 [flightdata/README.md](flightdata/README.md)。
 
-| | 怎麼再生 |
+### 沒收進來的東西,以及怎麼自己生
+
+**都可以再生,所以不用跟任何人要:**
+
+| | 怎麼生 |
 |---|---|
-| `chute_video/`(668 MB) | 影片幀。`tools/grab_yt_frames.py` 從 YouTube 存檔重抽:<br>`youtube.com/watch?v=ogR7rgce_ps` 的 **5:54:53 起 47 秒** |
-| `viewer/`(36 MB)、`chute_frames/`(7 MB) | `tools/build_viewer.py`、`track_crop.py` 重跑 |
-| `*_parsed.csv`、`*_events.txt` | `tools/parse_raw_lora.py` 從原始 log 重產 |
-| `flight_161_20260801_report.*` | `tools/flight_report.py` 重產 |
+| 解析後的 CSV、事件檔 | `tools/parse_raw_lora.py` |
+| 飛行儀表板 | `tools/flight_report.py` |
+| 影片幀(原本 668 MB) | `tools/grab_yt_frames.py`,來源 `youtube.com/watch?v=ogR7rgce_ps` 的 **5:54:53 起 47 秒** |
+| 81 組模擬矩陣 | `tools/gen_sim_matrix_309.py`(模型已在 `sim/models/`) |
 
-**所以真正要搶救的只有那 4 MB。**
-
----
-
-## 🔴 給接手者:最該先做的一件事
-
-**把那 4 MB 的原始 log 放進版控。**它是整個專案唯一無法重製的東西,
-而且小到沒有理由不收。建議:
-
-```bash
-cd rocket-system
-mkdir -p doc/flightdata/20260801
-cp "D:/Downloads/raw_ch1_20260801_152419_5e03e520_utc.log" doc/flightdata/20260801/
-cp "D:/Downloads/raw_ch2_20260801_152419_5e03e520_utc.log" doc/flightdata/20260801/
-cp "D:/Downloads/raw_ch1_20260801_152419_5e03e520.log"     doc/flightdata/20260801/
-cp "D:/Downloads/raw_ch2_20260801_152419_c212c94f.log"     doc/flightdata/20260801/
-```
-
-沒有這些檔案,`doc/` 裡所有的分析都**無法重跑、無法查核**。
+**唯一永久遺失的是 SD 卡的 50 Hz 記錄** —— 箭體未回收,兩塊板隨之沉海。
+那不是誰忘了備份,是物理上不存在了。
 
 ---
 

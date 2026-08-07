@@ -238,15 +238,15 @@ ST-Link 接 SWD(PA13 / PA14 / GND),或用 USB-C 走 DFU。
 
 不用有火箭也能練習分析。`tools/` 裡有 2026-08-01 那次飛行用的全套工具:
 
+**原始 log 就在 repo 裡**(`doc/flightdata/`),clone 下來直接就能跑:
+
 ```bash
-python tools/parse_raw_lora.py <原始log> --out-dir out
-python tools/flight_report.py out/ch1_parsed.csv out/ch2_parsed.csv --out report.png
+python tools/parse_raw_lora.py doc/flightdata/20260801/raw_ch1_20260801_152419_5e03e520_utc.log --out-dir out
+python tools/parse_raw_lora.py doc/flightdata/20260801/raw_ch2_20260801_152419_5e03e520_utc.log --out-dir out
+python tools/flight_report.py out/raw_ch1_*_parsed.csv out/raw_ch2_*_parsed.csv --out report.png
 ```
 
 會產生一張完整的雙板飛行儀表板。用法見 [../tools/README.md](../tools/README.md)。
-
-> ⚠ 原始 log **目前不在 repo 裡**(見 [README.md](README.md) 的已知問題)。
-> 跟學長姐要。
 
 ---
 

@@ -44,7 +44,7 @@ C0,00,09,00,00,00,64,20,48,03,00,00,
   與 `:1993`（無 GPS）
 - `firmware-ground` **不解析** —— `lora_bridge.c` 是純 UART 透傳
 - 真正的解析器在**另一個 repo**：
-  [`rocket_system_ground_side`](https://github.com/jjjay0826/rocket_system_ground_side)
+  [`rocket_system_ground_side`](https://github.com/jx06T/rocket_system_ground_side)
   的 `src/core/models.py`
 
 ### ★ 同步是靠一支跨 repo 測試

@@ -375,11 +375,11 @@ Mahony ＋ KF2，拿算出來的 `kf2_v` 對照韌體實際輸出的那一欄。
 ## 附：本文用到的資料與工具
 
 ```
-D:\Downloads\raw_ch1_20260801_152419_5e03e520_utc.log   板 1 原始遙測（含 UTC）
-D:\Downloads\raw_ch2_20260801_152419_5e03e520_utc.log   板 2 原始遙測（含 UTC）
-D:\Downloads\TASA_Pioneer_5K.eng                        引擎推力曲線
-D:\Downloads\002176_ATGM336H.pdf                        GNSS 模組規格書
-D:\Downloads\flight_161_analysis\                       解析結果與儀表板
+doc/flightdata/20260801/raw_ch1_..._utc.log   板 1 原始遙測（含 UTC）
+doc/flightdata/20260801/raw_ch2_..._utc.log   板 2 原始遙測（含 UTC）
+sim/motors/Pioneer5K.eng                      引擎推力曲線
+（GNSS 模組規格書 ATGM336H-5N 未收進 repo，向原廠取得）
+（解析結果與儀表板可用下列工具重產，不入版控）
 
 rocket-system\tools\parse_raw_lora.py     遙測解析（含 UTC 前綴）
 rocket-system\tools\flight_report.py      雙板儀表板

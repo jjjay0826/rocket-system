@@ -357,12 +357,12 @@ GNSS 那項**主動講出缺陷**（上升段凍結）反而加分——顯示�
 ## 附錄：這份規劃用到的原始檔案
 
 ```
-D:\Downloads\raw_ch1_20260801_152419_5e03e520.log     板 1 原始遙測
-D:\Downloads\raw_ch2_20260801_152419_c212c94f.log     板 2 原始遙測
-D:\Downloads\3.0.9.ork                                發射前模擬檔（TASA Pioneer_5K）
-rocket-system\doc\sim309_81cases.csv                  81 組模擬矩陣
-rocket-system\tools\parse_raw_lora.py                 遙測解析
-rocket-system\tools\compare_boards.py                 雙板交叉比對
-rocket-system\tools\flight_report.py                  儀表板產生
+doc/flightdata/20260801/raw_ch1_...5e03e520.log   板 1 原始遙測
+doc/flightdata/20260801/raw_ch2_...c212c94f.log   板 2 原始遙測
+sim/models/3.0.9.ork                              發射前模擬檔（TASA Pioneer_5K）
+doc/sim309_81cases.csv                            81 組模擬矩陣
+tools/parse_raw_lora.py                           遙測解析
+tools/compare_boards.py                           雙板交叉比對
+tools/flight_report.py                            儀表板產生
 rocket-system\tools\recover_log.py                    SD 卡救援（★見 0-A）
 ```
