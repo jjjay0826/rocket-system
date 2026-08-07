@@ -40,8 +40,15 @@ Desktop.ini
 #   *.ioc / .mxproject     → CubeMX 設定
 #   *.ld                   → linker script
 #   *.launch               → 除錯啟動設定
-#   Core/ Drivers/ FATFS/ Middlewares/ USB_DEVICE/ Application/ → 原始碼與 HAL
-*.launch
+#   Core/ Drivers/ FATFS/ Middlewares/ USB_DEVICE/ → 原始碼與 HAL
+#
+# ★ 2026-08-04：上面那行原本下面緊接著一條 `*.launch` 忽略規則，
+#   與註解自相矛盾。既有的兩個 .launch 因為早就被追蹤所以沒事，
+#   但任何【新增】的 .launch 都會被靜默忽略。已移除該規則。
+#
+# ★ 2026-08-04：`Application/` 已從備註移除 —— 那是 2026-06-26 CubeIDE
+#   UnderRoot 遷移留下的殘骸，四個專案裡的副本從未被編譯
+#   （編譯產物只有 Debug/Core/Src/*.o），內容與 Core/ 只差版權年份。已刪除。
 
 # Python 位元組快取（tools/ 下的分析腳本執行後產生）
 __pycache__/
