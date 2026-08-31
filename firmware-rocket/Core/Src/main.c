@@ -671,7 +671,22 @@ static float vz_baro_lp = 0.0f;        /* 氣壓微分速度 (LP τ=1s)：KF2 �
 static float    peak_rel_alt    = 0.0f; /* 飛行中氣壓最高點 (m) */
 static uint32_t vz_neg_start_ms = 0;   /* kf2_v 轉負的起始 tick */
 static uint8_t  cond_A          = 0;   /* A: 氣壓高度低於最高點 10m（裸氣壓）*/
-static uint8_t  cond_B          = 0;   /* B: KF2 速度持續向下 1.5s */
+static uint8_t  cond_B          = 0;   /* B: 氣壓微分速度持續向下 1.5s */
+
+/* ── ★2026-08-07：峰值保持（每送一包後重置）────────────────────────────
+ * IMU 區塊跑 100 Hz，封包只有 2 Hz —— 兩者差 50 倍。
+ * 開傘衝擊只有 50~150 ms 寬，2 Hz 快照【本來就會漏】。
+ *
+ * 2026-08-01 的實際代價：
+ *   · 兩次開傘衝擊各只有一塊板取樣到，純屬運氣；ch2 還剛好在第一次跳拍
+ *   · 量到的 6.14 g / 1.53 kN 因此只是【下限】，真峰值永遠不知道
+ *   · 主傘充氣瞬間的 1166 °/s 自旋是【事後】從封包裡湊出來的，
+ *     飛行當下地面完全看不到
+ *
+ * 這兩個暫存器把 50 個取樣點的最大值帶下來，成本是兩個 float 加兩次比較。
+ * 瞬時值仍照送（GA 與 GX/GY/GZ 不動），峰值是額外資訊，不取代任何東西。*/
+static float peak_ga_hold = 0.0f;      /* 合加速度峰值 (g)      → 封包 GAP */
+static float peak_w_hold  = 0.0f;      /* 合角速度峰值 (deg/s)  → 封包 WP  */
 
 /* ---- 模組存活狀態 ---- */
 typedef struct {
@@ -1721,6 +1736,15 @@ int main(void)
           gz = (float)raw_gz / 14.286f * deg2rad;
           tc = (float)raw_t / 256.f + 25.f;
           total_g = sqrtf(ax*ax + ay*ay + az*az);
+
+          /* ★2026-08-07 峰值保持：在這裡（100 Hz）更新，送包時（2 Hz）帶走並歸零。
+           * gx/gy/gz 此處已是 rad/s，除以 deg2rad 換回 deg/s，與封包的 GX/GY/GZ 同單位。*/
+          if (total_g > peak_ga_hold) peak_ga_hold = total_g;
+          {
+            float w_dps = sqrtf(gx*gx + gy*gy + gz*gz) / deg2rad;
+            if (w_dps > peak_w_hold) peak_w_hold = w_dps;
+          }
+
           mahony_update(ax,ay,az,gx,gy,gz,dt);
 
           /* 引擎燒完偵測：起飛後，當合加速度降回 1.15g 以下，視為進入慣性上升段 (LAUNCH) */
@@ -2091,24 +2115,33 @@ int main(void)
 
           /* VF=保險絲後端電壓、VA=arming 開關後端電壓（-1.00 = ADC 不可用）。
            * 地面端以正則 key-value 解析，新欄位向後相容（舊版解析器直接忽略）。*/
+          /* ★2026-08-07 新增 GAP／WP：自上一包以來的【峰值】（100 Hz 取樣的最大值）。
+           * 瞬時的 GA 與 GX/GY/GZ 完全不動，峰值是額外欄位，舊解析器會直接忽略。
+           * 送出後歸零，見本區塊末尾的重置。 */
           if (gd.valid) {
             lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
-              "T%lu SQ%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:1,%u C:%X VF%.2f VA%.2f LAT%+0.5f LON%+0.5f\r\n",
+              "T%lu SQ%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f GAP%.2f WP%.1f ST:%d MOD:%X GPS:1,%u C:%X VF%.2f VA%.2f LAT%+0.5f LON%+0.5f\r\n",
               (unsigned long)now, (unsigned long)lora_seq, ax, ay, az,
               gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
-              press, rel_alt, kf2_h, kf2_v, total_g,
+              press, rel_alt, kf2_h, kf2_v, total_g, peak_ga_hold, peak_w_hold,
               (int)flight_state, mod_hex, (unsigned)gd.num_sats, pyro_hex,
               v_fuse, v_arm,
               gd.latitude, gd.longitude);
           } else {
             lora_n = snprintf(lora_pkt, sizeof(lora_pkt),
-              "T%lu SQ%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:0,0 C:%X VF%.2f VA%.2f\r\n",
+              "T%lu SQ%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f GAP%.2f WP%.1f ST:%d MOD:%X GPS:0,0 C:%X VF%.2f VA%.2f\r\n",
               (unsigned long)now, (unsigned long)lora_seq, ax, ay, az,
               gx/0.017453293f, gy/0.017453293f, gz/0.017453293f,
-              press, rel_alt, kf2_h, kf2_v, total_g,
+              press, rel_alt, kf2_h, kf2_v, total_g, peak_ga_hold, peak_w_hold,
               (int)flight_state, mod_hex, pyro_hex,
               v_fuse, v_arm);
           }
+
+          /* ★峰值窗口重置。歸零而不是設成當前值 —— IMU 區塊 10 ms 後就會再更新，
+           * 不會留下空窗；設成當前值反而會讓下一包的峰值被這一刻的瞬時值墊高。
+           * 位置必須在兩個 snprintf 【之後】，確保送出的是完整的 500 ms 窗。*/
+          peak_ga_hold = 0.0f;
+          peak_w_hold  = 0.0f;
 
           if (lora_n > 0 && lora_n < (int)sizeof(lora_pkt)) {
             if (LoRa_SendAsync((uint8_t*)lora_pkt, (uint8_t)lora_n) == 0) {

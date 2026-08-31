@@ -48,13 +48,25 @@
 /* 發送端格式（與 main.c 的 lora_pkt snprintf 逐字一致；勿擅改順序）*/
 #define RKT_LORA_TX_FMT_GPS \
   "T%lu SQ%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f " \
-  "P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:1,%u C:%X " \
+  "P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f GAP%.2f WP%.1f ST:%d MOD:%X GPS:1,%u C:%X " \
   "VF%.2f VA%.2f LAT%+0.5f LON%+0.5f\r\n"
 
 #define RKT_LORA_TX_FMT_NOGPS \
   "T%lu SQ%lu AX%+0.3f AY%+0.3f AZ%+0.3f GX%+0.2f GY%+0.2f GZ%+0.2f " \
-  "P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f ST:%d MOD:%X GPS:0,0 C:%X " \
+  "P%.2f RH%.1f KH%.1f VZ%+0.2f GA%.2f GAP%.2f WP%.1f ST:%d MOD:%X GPS:0,0 C:%X " \
   "VF%.2f VA%.2f\r\n"
+
+/* ── ★2026-08-07 新增 GAP／WP ──────────────────────────────────────────
+ * GAP = 自上一包以來的合加速度峰值 (g)
+ * WP  = 自上一包以來的合角速度峰值 (deg/s)
+ *
+ * 為什麼需要：IMU 區塊跑 100 Hz，封包只有 2 Hz。開傘衝擊只有 50~150 ms 寬，
+ * 2 Hz 快照本來就會漏。2026-08-01 那次，兩次開傘衝擊各只有一塊板取樣到，
+ * 量到的 6.14 g／1.53 kN 因此只是【下限】；而主傘充氣瞬間的 1166 °/s 自旋
+ * 是事後才從封包湊出來的，飛行當下地面完全看不到。
+ *
+ * 瞬時的 GA 與 GX/GY/GZ 完全不動；GAP/WP 是額外欄位。
+ * 舊版解析器以正則 key-value 取值，不認得就直接忽略 → 向後相容。 */
 
 /* 封包緩衝上限（與 firmware-rocket 的 lora_pkt[256] 一致）*/
 #define RKT_LORA_MAX_LEN    256
