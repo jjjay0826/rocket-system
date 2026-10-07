@@ -7,6 +7,8 @@
 >
 > 飛行結果 → [flight_161_summary.md](flight_161_summary.md)
 >
+> **現在還沒修的有哪些 → [known_issues.md](known_issues.md)**（現況清單，與本檔衝突時以它為準）
+>
 > 已知被飛行結果直接影響的項目：
 >
 > | 原項目 | 飛行後 |

@@ -18,7 +18,7 @@
 
 **2026-08-01 在旭海實際飛過一次(第 161 隊,競賽第三名)。**
 
-- 飛到 **833.7 m**。**ch1 的開傘主路徑在頂點後 1.5 秒準時觸發;ch2 主路徑失效,靠 18 秒備援計時器開傘** —— 備援救了它,但主路徑在兩塊板裡失敗了一塊
+- 飛到 **833.7 m**。**ch1 的開傘主路徑在頂點後約 2 秒(1.6~2.1 s)觸發;ch2 主路徑失效,靠 18 秒備援計時器開傘** —— 備援救了它,但主路徑在兩塊板裡失敗了一塊
 - 失效在回收系統的機械端:拖曳傘展開時把箭體帶進 **3.2 轉/秒**的自旋,
   主傘在自旋中充氣、傘繩扭轉、載荷集中到少數幾條線上、結構失效,
   以 32 m/s 落海
@@ -34,10 +34,11 @@
 
 | 順序 | 檔案 | 為什麼 |
 |---|---|---|
-| 1 | **[launch_day_reference.md](launch_day_reference.md)** | 發射日操作手冊。編譯開關、開機檢查、地面站啟動、全部指令、按鈕、狀態燈 |
-| 2 | **[open_defects_20260801.md](open_defects_20260801.md)** | 上次發射前的缺陷清單。**A 段是「會擋住發射」的項目**,先確認每一條的現況 |
+| 1 | **[known_issues.md](known_issues.md)** | **現在還沒修的問題,唯一的現況清單。**🔴 那 7 條是「下次飛之前一定要處理」 |
+| 2 | **[launch_day_reference.md](launch_day_reference.md)** | 發射日操作手冊。編譯開關、開機檢查、地面站啟動、全部指令、按鈕、狀態燈 |
 | 3 | **[flight_161_summary.md](flight_161_summary.md)** 第七節 | 上次飛完得到的六條改進項,前三條是回收系統 |
-| 4 | [../firmware-rocket/doc/e28_b_board_checklist.md](../firmware-rocket/doc/e28_b_board_checklist.md) | B 板換 2.4 GHz E28 的接線與法規 |
+| 4 | [open_defects_20260801.md](open_defects_20260801.md) | 上次**發射前**的缺陷清單(快照)。當檢查清單的範本用;現況以 known_issues.md 為準 |
+| 5 | [../firmware-rocket/doc/e28_b_board_checklist.md](../firmware-rocket/doc/e28_b_board_checklist.md) | B 板換 2.4 GHz E28 的接線與法規 |
 
 > ⚠ **發射日守則**:`open_defects_20260801.md` 的 A 段是「做不到就別飛」的項目。
 > 不要在發射日改開傘路徑 —— 那條寫在 `failure_analysis_20260801.md` 裡,
@@ -90,11 +91,12 @@
 | `getting_started.md` | 🟢 **新手第一站** | 從零開始:這塊板子是什麼、怎麼判斷開傘、板上有什麼、名詞表、第一個小時動手做什麼 |
 | `where_is_everything.md` | 🟢 **找檔案看這份** | 兩個 GitHub repo 的 clone 指令、完整檔案地圖、以及「新東西該放哪」 |
 | `README.md` | 🟢 | 本頁(路由表) |
+| `known_issues.md` | 🟢 **現況清單** | 所有還沒修的問題(🔴7／🟠12／🟡5／❓3)與已修好的教訓,每項附白話說明與修法。**修好一項就更新它** |
 | `flight_161_summary.md` | 🟢 **入口** | 2026-08-01 飛行總結。總表／失效鏈／子系統成績單／無解清單／改進項 |
 | `parachute_failure_20260801.md` | 🟢 | 主傘失效完整分析。**開傘議題以這份為準** |
 | `launch_day_reference.md` | 🟢 | 發射日操作手冊(764 行,最厚的一份) |
 | `failure_analysis_20260801.md` | 🟡 部分 | §1 GNSS 🟢／§2 卡爾曼 🟢／**§3 主傘 🔴 已被推翻** |
-| `open_defects_20260801.md` | 🟡 快照 | 2026-08-01 發射前的缺陷清單。部分項目已被飛行結果回答 |
+| `open_defects_20260801.md` | 🟡 快照 | 2026-08-01 發射前的缺陷清單。部分項目已被飛行結果回答;**現況看 `known_issues.md`** |
 | `final_presentation_plan.md` | 🟡 歷史 | 2026 決賽簡報規劃。評分表拆解仍可參考 |
 | `sim309_81cases.csv` | 🟢 資料 | 81 組 OpenRocket 模擬(3 推力 × 3 仰角 × 9 風況) |
 | `sim309_analysis.txt` | 🟢 資料 | 上者的分析輸出 |
