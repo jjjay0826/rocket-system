@@ -1,0 +1,171 @@
+AZ_BIAS=-0.01119 g (n=100)
+SD: FAIL 1/5 retrying (fres=3 cmd0=00 cmd8=EE spierr=0 st=0 ec=0x0)
+T=6218    Ax=+0.014 Ay=+0.047 Az=+0.991 Gx=  +1.40 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623882 GNSS=NO_FIX sv=0/0 (b=1420,l=36) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: FAIL 2/5 retrying (fres=3 cmd0=00 cmd8=EE spierr=0 st=0 ec=0x0)
+T=6815    Ax=+0.007 Ay=+0.048 Az=+0.982 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623871 GNSS=NO_FIX sv=0/9 (b=1654,l=41) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=7412    Ax=+0.006 Ay=+0.047 Az=+0.990 Gx=  +1.47 Gy=  -1.61 Gz=  -2.87 P=1005.79 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238D1 GNSS=NO_FIX sv=0/9 (b=1673,l=41) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=7912    Ax=+0.002 Ay=+0.047 Az=+0.987 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238A7 GNSS=NO_FIX sv=0/0 (b=1893,l=48) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=8412    Ax=+0.004 Ay=+0.055 Az=+0.986 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623851 GNSS=NO_FIX sv=0/9 (b=2145,l=53) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=8912    Ax=+0.002 Ay=+0.046 Az=+0.986 Gx=  +1.47 Gy=  -1.54 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623878 GNSS=NO_FIX sv=0/0 (b=2366,l=60) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: FAIL 3/5 retrying (fres=3 cmd0=00 cmd8=EE spierr=0 st=0 ec=0x0)
+T=9578    Ax=+0.004 Ay=+0.055 Az=+0.992 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238BB GNSS=NO_FIX sv=0/0 (b=2778,l=70) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=10078   Ax=+0.007 Ay=+0.053 Az=+0.997 Gx=  +1.47 Gy=  -1.47 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=1.00 Tc=24.7 raw=0x62387C GNSS=NO_FIX sv=0/0 (b=2839,l=72) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=10578   Ax=+0.002 Ay=+0.057 Az=+0.990 Gx=  +1.40 Gy=  -1.47 Gz=  -2.80 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62386D GNSS=NO_FIX sv=0/0 (b=3251,l=82) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=11078   Ax=+0.001 Ay=+0.058 Az=+0.992 Gx=  +1.40 Gy=  -1.54 Gz=  -2.87 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238B1 GNSS=NO_FIX sv=0/0 (b=3312,l=84) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=11578   Ax=+0.005 Ay=+0.051 Az=+0.987 Gx=  +1.47 Gy=  -1.47 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623891 GNSS=NO_FIX sv=0/0 (b=3724,l=94) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: FAIL 4/5 retrying (fres=3 cmd0=00 cmd8=EE spierr=0 st=0 ec=0x0)
+T=12578   Ax=+0.001 Ay=+0.051 Az=+0.988 Gx=  +1.40 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623866 GNSS=NO_FIX sv=0/0 (b=4197,l=106) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=13078   Ax=+0.002 Ay=+0.054 Az=+0.985 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62388A GNSS=NO_FIX sv=0/0 (b=4258,l=108) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=13578   Ax=+0.009 Ay=+0.047 Az=+0.993 Gx=  +1.47 Gy=  -1.47 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238AC GNSS=NO_FIX sv=0/0 (b=4669,l=118) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=14078   Ax=+0.005 Ay=+0.053 Az=+0.994 Gx=  +1.47 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=1.00 Tc=24.7 raw=0x62387A GNSS=NO_FIX sv=0/0 (b=4731,l=120) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=14578   Ax=+0.009 Ay=+0.053 Az=+0.989 Gx=  +1.40 Gy=  -1.54 Gz=  -2.66 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623896 GNSS=NO_FIX sv=0/0 (b=5142,l=130) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: FAIL 5/5 GIVE-UP (fres=3 cmd0=00 cmd8=EE spierr=0 st=0 ec=0x0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=16150   Ax=+0.002 Ay=+0.046 Az=+0.986 Gx=  +1.33 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623872 GNSS=NO_FIX sv=0/0 (b=5677,l=144) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=16650   Ax=-0.003 Ay=+0.050 Az=+0.997 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=1.00 Tc=24.7 raw=0x623899 GNSS=NO_FIX sv=0/0 (b=6150,l=156) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=17150   Ax=+0.001 Ay=+0.045 Az=+0.987 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623888 GNSS=NO_FIX sv=0/0 (b=6150,l=156) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=17650   Ax=+0.002 Ay=+0.055 Az=+0.982 Gx=  +1.47 Gy=  -1.47 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62387A GNSS=NO_FIX sv=0/0 (b=6623,l=168) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=18150   Ax=+0.007 Ay=+0.053 Az=+0.989 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62382C GNSS=NO_FIX sv=0/0 (b=6623,l=168) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=18650   Ax=+0.007 Ay=+0.048 Az=+0.990 Gx=  +1.33 Gy=  -1.47 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62385A GNSS=NO_FIX sv=0/0 (b=7096,l=180) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=19150   Ax=+0.001 Ay=+0.050 Az=+0.983 Gx=  +1.47 Gy=  -1.61 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623885 GNSS=NO_FIX sv=0/0 (b=7096,l=180) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=19650   Ax=-0.001 Ay=+0.053 Az=+0.987 Gx=  +1.40 Gy=  -1.61 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238AA GNSS=NO_FIX sv=0/0 (b=7569,l=192) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=20572   Ax=+0.007 Ay=+0.046 Az=+0.992 Gx=  +1.54 Gy=  -1.61 Gz=  -2.73 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623860 GNSS=NO_FIX sv=0/0 (b=7974,l=202) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=21072   Ax=+0.013 Ay=+0.051 Az=+0.993 Gx=  +1.40 Gy=  -1.54 Gz=  -2.73 P=1005.79 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238CA GNSS=NO_FIX sv=0/0 (b=8042,l=204) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=21572   Ax=+0.002 Ay=+0.049 Az=+1.000 Gx=  +1.47 Gy=  -1.61 Gz=  -2.80 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=1.00 Tc=24.7 raw=0x62386D GNSS=NO_FIX sv=0/0 (b=8447,l=214) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=22072   Ax=+0.011 Ay=+0.051 Az=+0.997 Gx=  +1.33 Gy=  -1.61 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=1.00 Tc=24.7 raw=0x623892 GNSS=NO_FIX sv=0/0 (b=8515,l=216) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=22572   Ax=+0.011 Ay=+0.052 Az=+0.999 Gx=  +1.33 Gy=  -1.54 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=1.00 Tc=24.7 raw=0x623850 GNSS=NO_FIX sv=0/0 (b=8920,l=226) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=23072   Ax=+0.000 Ay=+0.051 Az=+0.994 Gx=  +1.40 Gy=  -1.47 Gz=  -2.73 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238A8 GNSS=NO_FIX sv=0/0 (b=8988,l=228) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=23572   Ax=+0.011 Ay=+0.047 Az=+0.990 Gx=  +1.47 Gy=  -1.47 Gz=  -2.73 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238A7 GNSS=NO_FIX sv=0/0 (b=9392,l=238) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=24072   Ax=+0.002 Ay=+0.047 Az=+0.985 Gx=  +1.40 Gy=  -1.61 Gz=  -2.73 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238BB GNSS=NO_FIX sv=0/0 (b=9461,l=240) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=24572   Ax=+0.004 Ay=+0.059 Az=+0.991 Gx=  +1.47 Gy=  -1.54 Gz=  -2.87 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238A2 GNSS=NO_FIX sv=0/0 (b=9865,l=250) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=25572   Ax=+0.001 Ay=+0.050 Az=+0.996 Gx=  +1.47 Gy=  -1.47 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=1.00 Tc=24.7 raw=0x6238B9 GNSS=NO_FIX sv=0/0 (b=10338,l=262) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=26072   Ax=+0.004 Ay=+0.047 Az=+0.983 Gx=  +1.40 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623890 GNSS=NO_FIX sv=0/0 (b=10407,l=264) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=26572   Ax=+0.001 Ay=+0.055 Az=+0.990 Gx=  +1.40 Gy=  -1.54 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623886 GNSS=NO_FIX sv=0/0 (b=10811,l=274) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=27072   Ax=+0.006 Ay=+0.051 Az=+0.987 Gx=  +1.33 Gy=  -1.54 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623875 GNSS=NO_FIX sv=0/0 (b=10880,l=276) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=27572   Ax=+0.001 Ay=+0.052 Az=+0.991 Gx=  +1.54 Gy=  -1.54 Gz=  -2.80 P=1005.79 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238D2 GNSS=NO_FIX sv=0/0 (b=11284,l=286) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=28072   Ax=+0.003 Ay=+0.057 Az=+0.990 Gx=  +1.47 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623862 GNSS=NO_FIX sv=0/0 (b=11353,l=288) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=28572   Ax=+0.009 Ay=+0.050 Az=+0.989 Gx=  +1.33 Gy=  -1.68 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238A9 GNSS=NO_FIX sv=0/0 (b=11757,l=298) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=29072   Ax=+0.004 Ay=+0.047 Az=+0.984 Gx=  +1.40 Gy=  -1.54 Gz=  -2.73 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62384F GNSS=NO_FIX sv=0/0 (b=11826,l=300) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=29572   Ax=+0.002 Ay=+0.052 Az=+0.993 Gx=  +1.33 Gy=  -1.61 Gz=  -2.73 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62384E GNSS=NO_FIX sv=0/0 (b=12230,l=310) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=30572   Ax=+0.010 Ay=+0.048 Az=+0.986 Gx=  +1.54 Gy=  -1.61 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623884 GNSS=NO_FIX sv=0/0 (b=12704,l=322) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=31072   Ax=+0.003 Ay=+0.045 Az=+0.984 Gx=  +1.40 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623878 GNSS=NO_FIX sv=0/0 (b=12772,l=324) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=31572   Ax=+0.011 Ay=+0.047 Az=+0.991 Gx=  +1.40 Gy=  -1.61 Gz=  -2.87 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623866 GNSS=NO_FIX sv=0/0 (b=13177,l=334) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=32072   Ax=+0.007 Ay=+0.050 Az=+0.983 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623858 GNSS=NO_FIX sv=0/0 (b=13245,l=336) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=32572   Ax=+0.006 Ay=+0.046 Az=+0.982 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62386B GNSS=NO_FIX sv=0/0 (b=13649,l=346) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=33072   Ax=+0.000 Ay=+0.055 Az=+0.987 Gx=  +1.47 Gy=  -1.47 Gz=  -2.87 P=1005.78 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62389D GNSS=NO_FIX sv=0/0 (b=13718,l=348) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=33572   Ax=+0.006 Ay=+0.060 Az=+0.987 Gx=  +1.40 Gy=  -1.47 Gz=  -2.80 P=1005.76 RelH=   0.2 KfH=   0.2 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623803 GNSS=NO_FIX sv=0/0 (b=14122,l=358) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=34072   Ax=+0.007 Ay=+0.047 Az=+0.982 Gx=  +1.40 Gy=  -1.47 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x6238A6 GNSS=NO_FIX sv=0/0 (b=14191,l=360) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=34572   Ax=+0.006 Ay=+0.048 Az=+0.983 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x6238A7 GNSS=NO_FIX sv=0/0 (b=14595,l=370) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=35572   Ax=+0.005 Ay=+0.050 Az=+0.993 Gx=  +1.47 Gy=  -1.61 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623875 GNSS=NO_FIX sv=0/0 (b=15068,l=382) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=36072   Ax=+0.007 Ay=+0.052 Az=+0.999 Gx=  +1.47 Gy=  -1.61 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=1.00 Tc=24.7 raw=0x62384E GNSS=NO_FIX sv=0/0 (b=15137,l=384) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=36572   Ax=-0.001 Ay=+0.040 Az=+0.986 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238B4 GNSS=NO_FIX sv=0/0 (b=15541,l=394) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=37072   Ax=+0.000 Ay=+0.054 Az=+0.981 Gx=  +1.33 Gy=  -1.47 Gz=  -2.87 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623866 GNSS=NO_FIX sv=0/0 (b=15610,l=396) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=37572   Ax=+0.002 Ay=+0.047 Az=+0.984 Gx=  +1.54 Gy=  -1.54 Gz=  -2.87 P=1005.78 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62389F GNSS=NO_FIX sv=0/0 (b=16014,l=406) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=38072   Ax=+0.005 Ay=+0.047 Az=+0.988 Gx=  +1.47 Gy=  -1.54 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623887 GNSS=NO_FIX sv=0/0 (b=16083,l=408) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=38572   Ax=+0.003 Ay=+0.046 Az=+0.983 Gx=  +1.33 Gy=  -1.54 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623856 GNSS=NO_FIX sv=0/0 (b=16487,l=418) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=39072   Ax=+0.003 Ay=+0.046 Az=+0.982 Gx=  +1.40 Gy=  -1.61 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62385A GNSS=NO_FIX sv=0/0 (b=16556,l=420) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=39572   Ax=+0.003 Ay=+0.043 Az=+0.980 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623881 GNSS=NO_FIX sv=0/0 (b=16960,l=430) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=40572   Ax=+0.000 Ay=+0.043 Az=+0.989 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62383B GNSS=NO_FIX sv=0/0 (b=17433,l=442) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=41072   Ax=+0.010 Ay=+0.051 Az=+0.998 Gx=  +1.33 Gy=  -1.61 Gz=  -2.73 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=1.00 Tc=24.7 raw=0x623859 GNSS=NO_FIX sv=0/0 (b=17502,l=444) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=41572   Ax=+0.004 Ay=+0.047 Az=+0.989 Gx=  +1.47 Gy=  -1.61 Gz=  -2.80 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623871 GNSS=NO_FIX sv=0/0 (b=17905,l=454) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=42072   Ax=+0.003 Ay=+0.053 Az=+0.993 Gx=  +1.47 Gy=  -1.54 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62387E GNSS=NO_FIX sv=0/0 (b=17975,l=456) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=42572   Ax=+0.003 Ay=+0.047 Az=+0.986 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.76 RelH=   0.2 KfH=   0.2 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623816 GNSS=NO_FIX sv=0/0 (b=18378,l=466) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=43072   Ax=-0.000 Ay=+0.053 Az=+0.989 Gx=  +1.40 Gy=  -1.61 Gz=  -2.80 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62386A GNSS=NO_FIX sv=0/0 (b=18448,l=468) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=43572   Ax=+0.004 Ay=+0.054 Az=+0.983 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62387B GNSS=NO_FIX sv=0/0 (b=18851,l=478) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=44072   Ax=+0.013 Ay=+0.053 Az=+0.985 Gx=  +1.47 Gy=  -1.61 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623844 GNSS=NO_FIX sv=0/0 (b=18921,l=480) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=44572   Ax=+0.007 Ay=+0.048 Az=+0.977 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62385F GNSS=NO_FIX sv=0/0 (b=19324,l=490) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=45572   Ax=+0.010 Ay=+0.045 Az=+0.985 Gx=  +1.47 Gy=  -1.47 Gz=  -2.73 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62385F GNSS=NO_FIX sv=0/0 (b=19797,l=502) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=46072   Ax=+0.001 Ay=+0.055 Az=+0.990 Gx=  +1.54 Gy=  -1.61 Gz=  -2.73 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62384B GNSS=NO_FIX sv=0/0 (b=19867,l=504) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=46572   Ax=+0.001 Ay=+0.050 Az=+0.983 Gx=  +1.40 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623868 GNSS=NO_FIX sv=0/0 (b=20270,l=514) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=47072   Ax=+0.005 Ay=+0.046 Az=+0.996 Gx=  +1.47 Gy=  -1.61 Gz=  -2.87 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=1.00 Tc=24.7 raw=0x623842 GNSS=NO_FIX sv=0/0 (b=20340,l=516) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=47572   Ax=+0.006 Ay=+0.050 Az=+0.991 Gx=  +1.40 Gy=  -1.61 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62388E GNSS=NO_FIX sv=0/0 (b=20743,l=526) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=48072   Ax=+0.007 Ay=+0.052 Az=+0.989 Gx=  +1.33 Gy=  -1.61 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62383F GNSS=NO_FIX sv=0/0 (b=20813,l=528) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=48572   Ax=+0.008 Ay=+0.047 Az=+0.982 Gx=  +1.40 Gy=  -1.54 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62388B GNSS=NO_FIX sv=0/0 (b=21215,l=537) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=49072   Ax=+0.006 Ay=+0.049 Az=+0.992 Gx=  +1.40 Gy=  -1.61 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623879 GNSS=NO_FIX sv=0/0 (b=21286,l=540) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=49572   Ax=+0.005 Ay=+0.050 Az=+0.983 Gx=  +1.40 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62388E GNSS=NO_FIX sv=0/0 (b=21688,l=549) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=50572   Ax=+0.014 Ay=+0.048 Az=+0.989 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.76 RelH=   0.2 KfH=   0.2 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6237EF GNSS=NO_FIX sv=0/0 (b=22162,l=562) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=51072   Ax=-0.000 Ay=+0.050 Az=+0.985 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62387B GNSS=NO_FIX sv=0/0 (b=22232,l=564) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=51572   Ax=+0.013 Ay=+0.042 Az=+0.987 Gx=  +1.47 Gy=  -1.61 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623835 GNSS=NO_FIX sv=0/0 (b=22634,l=573) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=52072   Ax=+0.005 Ay=+0.036 Az=+0.996 Gx=  +1.40 Gy=  -1.61 Gz=  -2.87 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=1.00 Tc=24.7 raw=0x62384E GNSS=NO_FIX sv=0/0 (b=22705,l=576) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=52572   Ax=+0.004 Ay=+0.043 Az=+0.990 Gx=  +1.40 Gy=  -1.61 Gz=  -2.73 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238A2 GNSS=NO_FIX sv=0/0 (b=23107,l=585) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=53072   Ax=+0.011 Ay=+0.049 Az=+0.987 Gx=  +1.33 Gy=  -1.40 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623872 GNSS=NO_FIX sv=0/0 (b=23178,l=588) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=53572   Ax=+0.002 Ay=+0.048 Az=+0.996 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=1.00 Tc=24.7 raw=0x623878 GNSS=NO_FIX sv=0/0 (b=23580,l=597) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=54072   Ax=+0.007 Ay=+0.049 Az=+0.989 Gx=  +1.40 Gy=  -1.61 Gz=  -2.66 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238A3 GNSS=NO_FIX sv=0/0 (b=23651,l=600) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=54572   Ax=+0.018 Ay=+0.053 Az=+0.993 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623868 GNSS=NO_FIX sv=0/0 (b=24053,l=609) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=55572   Ax=+0.005 Ay=+0.047 Az=+0.983 Gx=  +1.33 Gy=  -1.54 Gz=  -2.87 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62386B GNSS=NO_FIX sv=0/0 (b=24526,l=621) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=56072   Ax=+0.005 Ay=+0.042 Az=+0.985 Gx=  +1.47 Gy=  -1.75 Gz=  -2.73 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62386F GNSS=NO_FIX sv=0/0 (b=24597,l=624) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=56572   Ax=+0.005 Ay=+0.048 Az=+0.982 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623889 GNSS=NO_FIX sv=0/0 (b=24999,l=633) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=57072   Ax=+0.015 Ay=+0.042 Az=+0.979 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623878 GNSS=NO_FIX sv=0/0 (b=25070,l=636) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=57572   Ax=+0.003 Ay=+0.050 Az=+0.984 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238A1 GNSS=NO_FIX sv=0/0 (b=25471,l=645) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=58072   Ax=+0.002 Ay=+0.045 Az=+0.984 Gx=  +1.33 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623884 GNSS=NO_FIX sv=0/0 (b=25543,l=648) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=58572   Ax=+0.007 Ay=+0.048 Az=+0.993 Gx=  +1.47 Gy=  -1.47 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62387D GNSS=NO_FIX sv=0/0 (b=25944,l=657) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=59072   Ax=+0.010 Ay=+0.046 Az=+0.992 Gx=  +1.47 Gy=  -1.54 Gz=  -2.87 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62384B GNSS=NO_FIX sv=0/0 (b=26016,l=660) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=59572   Ax=+0.006 Ay=+0.043 Az=+0.987 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62386A GNSS=NO_FIX sv=0/0 (b=26417,l=669) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=60572   Ax=+0.010 Ay=+0.054 Az=+0.986 Gx=  +1.40 Gy=  -1.61 Gz=  -2.73 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238B8 GNSS=NO_FIX sv=0/0 (b=26890,l=681) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=61072   Ax=+0.012 Ay=+0.043 Az=+0.985 Gx=  +1.40 Gy=  -1.61 Gz=  -2.73 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62385F GNSS=NO_FIX sv=0/0 (b=26962,l=684) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=61572   Ax=+0.000 Ay=+0.052 Az=+0.992 Gx=  +1.40 Gy=  -1.47 Gz=  -2.73 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623858 GNSS=NO_FIX sv=0/0 (b=27363,l=693) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+[ERR] Unknown: '#CMD:OPEN_ABG_SALT8872#'  Type HELP
+
+> #CMD:OPEN_ABG_SALT8872#
+
+
+T=62072   Ax=+0.007 Ay=+0.054 Az=+0.987 Gx=  +1.40 Gy=  -1.61 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62387B GNSS=NO_FIX sv=0/0 (b=27435,l=696) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+[ERR] Unknown: '#CMD:OPEN_ABG_SALT8872#'  Type HELP
+
+> #CMD:OPEN_ABG_SALT8872#
+
+
+T=62572   Ax=+0.001 Ay=+0.049 Az=+0.979 Gx=  +1.47 Gy=  -1.61 Gz=  -2.80 P=1005.78 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62389B GNSS=NO_FIX sv=0/0 (b=27836,l=705) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=63072   Ax=+0.005 Ay=+0.041 Az=+0.987 Gx=  +1.40 Gy=  -1.61 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62388F GNSS=NO_FIX sv=0/0 (b=27908,l=708) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+[ERR] Unknown: '#CMD:OPEN_ABG_SALT8872#'  Type HELP
+
+> #CMD:OPEN_ABG_SALT8872#
+
+
+T=63572   Ax=+0.006 Ay=+0.046 Az=+0.989 Gx=  +1.54 Gy=  -1.75 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623884 GNSS=NO_FIX sv=0/0 (b=28309,l=717) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+[ERR] Unknown: '#CMD:OPEN_ABG_SALT8872#'  Type HELP
+
+> #CMD:OPEN_ABG_SALT8872#
+
+
+T=64072   Ax=+0.009 Ay=+0.054 Az=+0.984 Gx=  +1.40 Gy=  -1.54 Gz=  -2.87 P=1005.80 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623903 GNSS=NO_FIX sv=0/0 (b=28381,l=720) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=64572   Ax=+0.007 Ay=+0.045 Az=+0.994 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=1.00 Tc=24.7 raw=0x62386A GNSS=NO_FIX sv=0/0 (b=28782,l=729) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=65572   Ax=+0.008 Ay=+0.047 Az=+0.984 Gx=  +1.47 Gy=  -1.47 Gz=  -2.80 P=1005.79 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238D1 GNSS=NO_FIX sv=0/0 (b=29255,l=741) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=66072   Ax=+0.008 Ay=+0.049 Az=+0.988 Gx=  +1.47 Gy=  -1.54 Gz=  -2.73 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238AA GNSS=NO_FIX sv=0/0 (b=29327,l=744) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=66572   Ax=+0.008 Ay=+0.048 Az=+0.986 Gx=  +1.40 Gy=  -1.61 Gz=  -2.73 P=1005.79 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238E3 GNSS=NO_FIX sv=0/0 (b=29728,l=753) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=67072   Ax=+0.010 Ay=+0.047 Az=+0.982 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.79 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x6238CA GNSS=NO_FIX sv=0/0 (b=29800,l=756) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=67572   Ax=+0.013 Ay=+0.050 Az=+0.991 Gx=  +1.47 Gy=  -1.61 Gz=  -2.73 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62386C GNSS=NO_FIX sv=0/0 (b=30200,l=765) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=68072   Ax=+0.016 Ay=+0.051 Az=+0.985 Gx=  +1.54 Gy=  -1.47 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623882 GNSS=NO_FIX sv=0/0 (b=30273,l=768) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=68572   Ax=+0.009 Ay=+0.046 Az=+0.989 Gx=  +1.47 Gy=  -1.61 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623895 GNSS=NO_FIX sv=0/0 (b=30673,l=777) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=69072   Ax=-0.004 Ay=+0.051 Az=+0.997 Gx=  +1.47 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=1.00 Tc=24.7 raw=0x623869 GNSS=NO_FIX sv=0/0 (b=30746,l=780) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=69572   Ax=+0.003 Ay=+0.052 Az=+0.990 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.80 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238FE GNSS=NO_FIX sv=0/0 (b=31146,l=789) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=70572   Ax=+0.000 Ay=+0.045 Az=+0.997 Gx=  +1.40 Gy=  -1.68 Gz=  -2.87 P=1005.79 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=1.00 Tc=24.7 raw=0x6238C9 GNSS=NO_FIX sv=0/0 (b=31620,l=801) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=71072   Ax=+0.002 Ay=+0.054 Az=+0.993 Gx=  +1.40 Gy=  -1.54 Gz=  -2.80 P=1005.79 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238DD GNSS=NO_FIX sv=0/0 (b=31692,l=804) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=71572   Ax=+0.008 Ay=+0.051 Az=+0.994 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=1.00 Tc=24.7 raw=0x62389E GNSS=NO_FIX sv=0/0 (b=32092,l=813) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=72072   Ax=+0.003 Ay=+0.045 Az=+0.987 Gx=  +1.40 Gy=  -1.54 Gz=  -2.87 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623889 GNSS=NO_FIX sv=0/0 (b=32165,l=816) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=72572   Ax=+0.003 Ay=+0.047 Az=+0.981 Gx=  +1.54 Gy=  -1.61 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x623893 GNSS=NO_FIX sv=0/0 (b=32565,l=825) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=73072   Ax=+0.006 Ay=+0.049 Az=+0.986 Gx=  +1.40 Gy=  -1.61 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238B6 GNSS=NO_FIX sv=0/0 (b=32638,l=828) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=73572   Ax=+0.003 Ay=+0.042 Az=+0.980 Gx=  +1.47 Gy=  -1.54 Gz=  -2.87 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62382B GNSS=NO_FIX sv=0/0 (b=33038,l=837) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=74072   Ax=+0.004 Ay=+0.045 Az=+0.986 Gx=  +1.54 Gy=  -1.54 Gz=  -2.73 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62384E GNSS=NO_FIX sv=0/0 (b=33111,l=840) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=74572   Ax=+0.001 Ay=+0.045 Az=+0.986 Gx=  +1.47 Gy=  -1.54 Gz=  -2.73 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238B2 GNSS=NO_FIX sv=0/0 (b=33511,l=849) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+SD: REINIT FAIL (fres=3 cmd0=00 cmd8=EE) retry 5s
+T=75572   Ax=+0.004 Ay=+0.048 Az=+0.996 Gx=  +1.47 Gy=  -1.47 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=1.00 Tc=24.7 raw=0x623894 GNSS=NO_FIX sv=0/0 (b=33984,l=861) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=76072   Ax=+0.007 Ay=+0.049 Az=+0.991 Gx=  +1.40 Gy=  -1.61 Gz=  -2.80 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623849 GNSS=NO_FIX sv=0/0 (b=34057,l=864) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=76572   Ax=+0.006 Ay=+0.053 Az=+0.988 Gx=  +1.47 Gy=  -1.54 Gz=  -2.80 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x62388C GNSS=NO_FIX sv=0/0 (b=34457,l=873) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=77072   Ax=+0.006 Ay=+0.051 Az=+0.995 Gx=  +1.54 Gy=  -1.61 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=1.00 Tc=24.7 raw=0x623885 GNSS=NO_FIX sv=0/0 (b=34530,l=876) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=77572   Ax=-0.000 Ay=+0.054 Az=+0.984 Gx=  +1.47 Gy=  -1.68 Gz=  -2.80 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238A1 GNSS=NO_FIX sv=0/0 (b=34929,l=885) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=78072   Ax=-0.002 Ay=+0.047 Az=+0.989 Gx=  +1.47 Gy=  -1.68 Gz=  -2.94 P=1005.77 RelH=   0.1 KfH=   0.1 Vz= +0.00 G=0.99 Tc=24.7 raw=0x623853 GNSS=NO_FIX sv=0/0 (b=35003,l=888) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=78572   Ax=+0.008 Ay=+0.062 Az=+0.987 Gx=  +1.40 Gy=  -1.54 Gz=  -2.94 P=1005.79 RelH=  -0.0 KfH=  -0.0 Vz= +0.00 G=0.99 Tc=24.7 raw=0x6238A6 GNSS=NO_FIX sv=0/0 (b=35402,l=897) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=79072   Ax=+0.006 Ay=+0.051 Az=+0.974 Gx=  +1.40 Gy=  -1.47 Gz=  -2.80 P=1005.79 RelH=  -0.1 KfH=  -0.1 Vz= +0.00 G=0.97 Tc=24.7 raw=0x6238C1 GNSS=NO_FIX sv=0/0 (b=35476,l=900) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)
+T=79572   Ax=+0.003 Ay=+0.045 Az=+0.976 Gx=  +1.47 Gy=  -1.54 Gz=  -2.73 P=1005.78 RelH=   0.0 KfH=   0.0 Vz= +0.00 G=0.98 Tc=24.7 raw=0x62388C GNSS=NO_FIX sv=0/0 (b=35875,l=909) [IDLE] MOD=1100 CA=0/0 CB=0/0 pk=0.0 SD=0 LTX=N0(0/0)

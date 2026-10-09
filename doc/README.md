@@ -109,6 +109,10 @@
 | [`../tools/README.md`](../tools/README.md) | 全部分析工具的使用說明 |
 | [`../firmware-ground/README.md`](../firmware-ground/README.md) | 地面接收端 |
 | [`../firmware-rocket/doc/`](../firmware-rocket/doc/) | 韌體互動功能、B 板 E28 換裝 |
+| [`../hardware/README.md`](../hardware/README.md) | 兩代航電板的電路圖、PCB、網表,以及參考的資料表版本 |
+| [`../sim/README.md`](../sim/README.md) | OpenRocket 模型(含舊版)、推力曲線、定 DEPLOY_TB 用的模擬輸出 |
+| [`history/README.md`](history/README.md) | 已被取代的設計:開傘邏輯 v1.5、2025-11 FMEA |
+| [`flightdata/README.md`](flightdata/README.md) | 每一份原始資料的來源、格式與原始檔名 |
 
 ---
 

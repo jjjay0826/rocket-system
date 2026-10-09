@@ -246,7 +246,9 @@ Mahony ＋ KF2，拿算出來的 `kf2_v` 對照韌體實際輸出的那一欄。
 
 ### 影像證據（YouTube 直播存檔，經天空抑制處理）
 
-`doc/../flight_161_analysis/chute_frames/`
+影像幀當時存在分析者電腦的 `flight_161_analysis/chute_frames/`，**沒有入庫**（668 MB）。
+要重看：用 [`../tools/grab_yt_frames.py`](../tools/grab_yt_frames.py) 從直播存檔再抽一次，
+來源與時間點見 [`flightdata/README.md`](flightdata/README.md)「沒有進來的東西」。
 
 - **拖曳傘**：畫面上方一個小而緊實的彩色團 → 有充氣
 - **主傘**：中央一條**細長的彩色條**，長寬比約 3:1，下方拖著一條窄長的

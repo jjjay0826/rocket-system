@@ -48,7 +48,8 @@ rocket-system/
 ├─ sandbox/             實驗 / 測試專案（新功能先在這驗證，過了再進正式韌體）
 │  ├─ parachute/        降落傘投放測試
 │  └─ baro/             氣壓計測試
-├─ sim/                 OpenRocket 模型與推力曲線
+├─ sim/                 OpenRocket 模型、推力曲線、做決策用的模擬輸出 —— 見 sim/README.md
+├─ hardware/            兩代航電板的電路圖、PCB、網表 —— 見 hardware/README.md
 ├─ shared/
 │  └─ protocol.h        LoRa 遙測封包契約（兩端共用的單一真實來源）
 ├─ .gitignore           STM32CubeIDE 專用（排除 Debug/、.elf、workspace 暫存…）

@@ -34,7 +34,8 @@ https://github.com/jjjay0826/rocket-system
 | `firmware-ground/` | 地面那塊板的 C 程式 —— **只做 LoRa→USB 透傳,233 行** |
 | `sandbox/` | 桌上實驗用的專案(`parachute` 投放測試、`baro` 氣壓計) |
 | `shared/` | 兩端共用:封包契約、LoRa 模組設定檔 |
-| `sim/` | OpenRocket 模型(`models/`)與引擎推力曲線(`motors/`) |
+| `sim/` | OpenRocket 模型(`models/`)、引擎推力曲線(`motors/`)、做決策用的模擬輸出(`runs/`) |
+| `hardware/` | 兩代航電板的電路圖、PCB、網表(EasyEDA 匯出) |
 | `tools/` | Python 分析工具(遙測／影像／模擬三條管線) |
 | `doc/` | 全部文件 —— 從 [README.md](README.md) 進去 |
 
@@ -185,15 +186,26 @@ shared/
 ├─ lora_922_rocket.ini E22 暫存器設定 — 火箭端
 └─ lora_922_ground.ini 同上 — 地面端（與火箭端位元組相同）
 
-sim/
+sim/                  說明見 sim/README.md
 ├─ models/3.0.9.ork    ★ 定出 DEPLOY_TB=18s 的那份模型
 ├─ models/3.0.8.ork    前一版
-└─ motors/Pioneer5K{,_m10,_p10}.eng   引擎推力曲線（標準／−10%／+10%）
+├─ models/archive/     更早的 8 個版本（2025-11 起），只為追溯
+├─ motors/Pioneer5K{,_m10,_p10}.eng   引擎推力曲線（標準／−10%／+10%）
+└─ runs/20260720_deploy_tb/           DEPLOY_TB 20→18 s 時用的 OpenRocket 輸出
+
+hardware/             說明見 hardware/README.md
+├─ avionics_v1_2025-05/   第一代自製板：電路圖、PCB、3D 模型
+└─ rocket_v7_2026-06/     rocket_v7：電路圖、網表（韌體腳位的依據）
 
 tools/                20 支分析腳本，用途總表見 tools/README.md
 doc/                  全部文件，路由見 doc/README.md
-doc/flightdata/       ★ 原始遙測，唯一不可再生的東西
+doc/known_issues.md   ★ 現在還沒修的問題（唯一的現況清單）
+doc/flightdata/       ★ 原始遙測與 SD 記錄，唯一不可再生的東西
+doc/history/          已被取代的設計（開傘邏輯 v1.5、2025 FMEA）
 ```
+
+**收進來的資料檔都附 `SHA256SUMS`**（2026-10-07 起），
+原始檔名、日期與來源寫在各資料夾的 README —— 每個檔都查得到從哪來。
 
 ### rocket_system_ground_side
 
@@ -240,7 +252,11 @@ doc/
 | 新的**分析腳本** | `tools/*.py` | **同時更新 `tools/README.md` 的用途總表**,否則沒人知道它存在 |
 | 新的**文件** | `doc/*.md` | **同時更新 `doc/README.md` 的檔案總覽與狀態標示** |
 | 新的**飛行資料** | `doc/flightdata/<YYYYMMDD>/` | 只放原始 log。CSV／圖表／影像幀都可再生,不要進版控 |
-| 新的**火箭模型**、引擎曲線 | `sim/models/`、`sim/motors/` | **不要在腳本裡寫絕對路徑**(2026-08 踩過) |
+| 新的**火箭模型**、引擎曲線 | `sim/models/`、`sim/motors/` | **不要在腳本裡寫絕對路徑**(2026-08 踩過)。被取代的舊版移到 `sim/models/archive/` |
+| 拿來**定參數**的模擬輸出 | `sim/runs/<YYYYMMDD>_<用途>/` | 一般模擬輸出可再生、不入庫;但**定飛安參數的那批要留原檔當證據**,並在 `sim/README.md` 記下是哪個 commit 用的 |
+| 新的**硬體設計檔** | `hardware/<板名>_<YYYY-MM>/` | 日期用 EasyEDA 標題欄,不用檔案時間;附 `SHA256SUMS` |
+| 被取代的**舊設計** | `doc/history/` | 寫清楚「現況看哪」 |
+| 發現新的**問題** | `doc/known_issues.md` | 接在最後編號;修好就改 ✅ 並寫 commit |
 | 兩端都要用的東西 | `shared/` | |
 | 地面站的**新畫面元件** | `ground_side/src/gui/visualizers/` | |
 | 地面站的**新解析欄位** | `ground_side/src/core/models.py` | **改完跑 `python tests/run_all.py`** |
