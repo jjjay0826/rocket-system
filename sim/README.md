@@ -59,10 +59,13 @@ sim/
   `5k_*.csv`（20:29～20:56）和 `3.0.4.ork` 存檔（20:47）在同一個時段。
   所以照 repo 的慣例它們本該是「可再生、不入庫」，但因為一個飛安參數是依它們定的、
   又無法確定能原樣重跑，**原檔收進來當證據**
-- [`../tools/sim_replay.py`](../tools/sim_replay.py) 的使用說明拿 `5k_p10_h.csv` 當範例：
+- [`../tools/sim_replay.py`](../tools/sim_replay.py) 的使用說明拿 `5k_p10_h.csv` 當範例，現在這個檔真的在了：
 
 ```bash
 python tools/sim_replay.py sim/runs/20260720_deploy_tb/5k_p10_h.csv --dry
 ```
+
+  ⚠ 但 `sim_replay.py` 本身**已經過時**（封包缺 `SQ`/`VF`/`VA` 欄位），
+  要灌地面站當假飛行請用 `tools/replay309.py`，見 [`../tools/README.md`](../tools/README.md) C4。
 
 `SHA256SUMS` 是收進來時算的雜湊值。

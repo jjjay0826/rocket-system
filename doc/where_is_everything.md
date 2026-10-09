@@ -197,7 +197,7 @@ hardware/             說明見 hardware/README.md
 ├─ avionics_v1_2025-05/   第一代自製板：電路圖、PCB、3D 模型
 └─ rocket_v7_2026-06/     rocket_v7：電路圖、網表（韌體腳位的依據）
 
-tools/                20 支分析腳本，用途總表見 tools/README.md
+tools/                21 支分析腳本，用途總表見 tools/README.md
 doc/                  全部文件，路由見 doc/README.md
 doc/known_issues.md   ★ 現在還沒修的問題（唯一的現況清單）
 doc/flightdata/       ★ 原始遙測與 SD 記錄，唯一不可再生的東西
