@@ -166,6 +166,16 @@ cd rocket_system_ground_side && python tests/run_all.py
 
 完整說明見 [../shared/README.md](../shared/README.md)。
 
+### 4. ✅ 已解決:Windows 上 clone 會改到資料檔的位元組
+
+Git for Windows 預設 `core.autocrlf=true`,checkout 時會把 LF 換成 CRLF ——
+連 PDF、STEP 都會被誤判成文字檔而改壞,`SHA256SUMS` 也永遠對不上。
+**repo 裡存的位元組一直是對的,壞的是 Windows 上 checkout 出來的那份。**
+2026-10-09 從乾淨 clone 驗證時發現(`sim/motors/*.eng` 從一開始就中招)。
+
+修法是根目錄的 [`../.gitattributes`](../.gitattributes):資料、設計檔、雜湊清單一律不轉換。
+**在那之前 clone 的 Windows 使用者,重新 clone 一次。**
+
 ---
 
 ## 2026-08-04 做過的結構整理

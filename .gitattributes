@@ -1,0 +1,29 @@
+# 原始資料、設計檔、雜湊清單：checkout 時一律不准改位元組。
+#
+# 沒有這個檔時，Windows 上 core.autocrlf=true（Git for Windows 的預設）會在 clone
+# 時把 LF 改成 CRLF —— 連 PDF、STEP 都會被誤判成文字檔而改壞，SHA256SUMS 也永遠
+# 對不上。repo 裡存的位元組一直是對的，壞的是 checkout 出來的那一份。
+#
+# 已經 clone 過的 Windows 使用者：重新 clone 一次最乾淨。
+
+# 二進位檔
+*.pdf   binary
+*.step  binary
+*.ork   binary
+*.png   binary
+*.jpg   binary
+
+# 文字格式的資料檔：內容就是證據，換行也不能動
+*.csv   -text
+*.CSV   -text
+*.TXT   -text
+*.log   -text
+*.eng   -text
+*.tel   -text
+SHA256SUMS  -text
+
+# 資料夾層級的保險（含日後新增、副檔名不在上面的檔）
+doc/flightdata/**  -text
+hardware/**        -text
+sim/**             -text
+doc/history/**     -text
