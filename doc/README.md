@@ -1,4 +1,4 @@
-# doc/ 導覽 —— 給下一屆
+# doc/ 導覽 
 
 ## 🆕 第一次接觸這個專案?先讀 **[getting_started.md](getting_started.md)**
 
