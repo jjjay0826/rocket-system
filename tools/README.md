@@ -10,6 +10,7 @@
 | 我想做… | 用哪支 |
 |---|---|
 | 把地面站的原始 log 變成可分析的 CSV | `parse_raw_lora.py` |
+| 從原始 log 重算 8/1 失效分析的時間軸、逐列對照文件 | `verify_timeline_0801.py` |
 | 做一張雙板飛行儀表板（給報告用） | `flight_report.py` |
 | 逐項比對兩塊板 | `compare_boards.py` |
 | GPS 不能用時反解速度向量 | `fit_ballistic.py` |
@@ -62,6 +63,17 @@ python tools/parse_raw_lora.py doc/flightdata/20260801/raw_ch2_20260801_152419_5
 
 **★ 地面站的 log 若有 UTC 時戳前綴，一定要用那個版本。**有 UTC 就有兩塊板的
 共同時鐘，下游不必再靠擬合對齊。CSV 會多一個 `utc` 欄（當日秒數）。
+
+### A1b　重驗 8/1 時間軸
+
+```bash
+python tools/verify_timeline_0801.py
+```
+
+只讀 `doc/flightdata/20260801/` 的 log，把
+[parachute_failure_20260801.md](../doc/parachute_failure_20260801.md) 第 0、1 節的每一列重算一次，
+印出「文件值／重算值」。開傘訊息夾在哪兩包之間是從**完整版** log 讀的
+（ch2 的 `_utc` 版沒收 MSG 行）。影像那幾列不在 log 裡，驗不到（見 known_issues #32）。
 
 ### A2　產生儀表板
 
@@ -140,14 +152,19 @@ python tools/grab_yt_frames.py "<網址>" --start 5:54:53 --dur 47 --out-dir chu
 - 自動取 **video-only 最高畫質**串流（YouTube 的混流版通常上限只有 720p）
 - 抽出無損 PNG。`--fps N` 可降抽幀率，`--no-frames` 只下載不抽
 
-**怎麼找時間戳**：遙測有 UTC，用點火閃光那一幀對齊即可。本次飛行：
+**怎麼找時間戳**：遙測有 UTC。本次飛行（T+ 是 ch2 時間軸，定義見
+[parachute_failure_20260801.md](../doc/parachute_failure_20260801.md) 第 0 節）：
 
-| 事件 | UTC（台灣時間） | 相對離架 |
+| 事件 | UTC（台灣時間） | T+ |
 |---|---|---|
-| 離架 | 16:57:28.050 | T+0 |
-| 開傘點火 | 16:57:44.088 | T+16.0 |
+| ch2 第一個 `ST:1` 封包（**不是離架**：推算離架約在 T−0.3） | 16:57:28.050 | T+0 |
+| ch1 點火**前最後一包**（點火在其後 0～0.5 s） | 16:57:44.088 | T+16.0 |
 | 開傘衝擊 6.14 g | 16:57:46.097 | T+18.0 |
 | 遙測最後一包（20 m） | 16:58:11.607 | T+43.6 |
+
+⚠ 舊版說明叫你「用點火閃光那一幀對到 16:57:44.088」—— 那個時戳不是點火時刻，
+會差到半秒。8/1 那批幀到底怎麼對齊的沒有記錄，**影像與遙測的對齊目前未驗證**
+（[known_issues.md](../doc/known_issues.md) #32）。
 
 ### B2　追蹤裁切 ＋ 疊幀降噪
 

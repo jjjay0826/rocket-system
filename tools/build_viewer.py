@@ -23,9 +23,14 @@
 
 ## 影片時間與飛行時間
 
-本次直播片段的 t=0 就是離架（第一幀是箭在架上冒煙），所以
+本次直播片段的 t=0 被當作離架（第一幀是箭在架上冒煙），所以
     飛行 T+ = 影片 clip 時間 + OFFSET
 OFFSET 預設 0，檢視器裡可以即時微調。
+
+⚠ 2026-10-15：遙測的 T+0 是 ch2 第一個 ST:1 封包，比離架晚約 0.3 s，
+所以就算第一幀剛好是離架，OFFSET 也應該約 −0.3 而不是 0；
+而片段起點是整數秒（5:54:53），第一幀不一定剛好是離架。
+影像與遙測的對齊未驗證，見 doc/known_issues.md #32。
 """
 import argparse
 import glob
@@ -215,7 +220,7 @@ kbd{background:#2b3346;border:1px solid #3a4560;border-radius:4px;padding:1px 6p
 
 <div class="hint">
   <kbd>←</kbd><kbd>→</kbd> 前後一格　<kbd>空白</kbd> 播放／暫停　<kbd>P</kbd> 釘選
-  ｜　「時間偏移」用來微調影片與遙測的對齊（影片 t=0 = 離架，理論上偏移為 0）
+  ｜　「時間偏移」用來微調影片與遙測的對齊（遙測 T+0 比離架晚約 0.3 s，對齊未驗證，見 known_issues #32）
 </div>
 
 <script src="data.js"></script>
