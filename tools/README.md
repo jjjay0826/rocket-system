@@ -213,8 +213,11 @@ python tools/separate_objects.py "tracked/f_*.png" --out-dir separated --up 1
 ### B4　拖時間軸、一次比對多組影像
 
 ```bash
-python tools/build_viewer.py "separated/*_sep.png" --out-dir viewer
+python tools/build_viewer.py "separated/*_sep.png" --out viewer
 ```
+
+「時間偏移」預設 −0.48 s，對應從 5:54:53 起抓的片段（實測，見 parachute_failure 第 0.1 節）；
+片段起點不同時用 `--offset` 改（＝片段起點的直播秒數 − 21293.48）。
 
 產生一個**單一 HTML 的本機檢視器**：可拖時間軸、可釘選多組並排比對。
 影像用相對路徑引用而不是 base64 內嵌 —— 150 張 base64 進 HTML 會超過 10 MB，

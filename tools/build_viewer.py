@@ -23,13 +23,13 @@
 
 ## 影片時間與飛行時間
 
-本次直播片段的 t=0 被當作離架（第一幀是箭在架上冒煙），所以
     飛行 T+ = 影片 clip 時間 + OFFSET
-OFFSET 預設 0，檢視器裡可以即時微調。
 
-⚠ 2026-10-15 實測：箭開始動在直播 21293.13 s，遙測 T+0 在直播 21293.48 ± 0.07 s，
-所以 飛行 T+ = 直播秒數 − 21293.48。片段從 5:54:53（＝21293.00）開始時，
-OFFSET 應約 −0.48，不是 0。見 doc/parachute_failure_20260801.md 第 0.1 節。
+OFFSET 預設 −0.48（--offset 可改，檢視器裡也可以即時微調）。
+來源是 2026-10-15 的實測：遙測 T+0 在直播 21293.48 ± 0.07 s，
+而 tools/README.md 的片段從 5:54:53（＝21293.00）開始。
+片段起點不同時，OFFSET = 片段起點的直播秒數 − 21293.48。
+見 doc/parachute_failure_20260801.md 第 0.1 節。
 """
 import argparse
 import glob
@@ -190,7 +190,7 @@ kbd{background:#2b3346;border:1px solid #3a4560;border-radius:4px;padding:1px 6p
   <button id="play">▶ 播放</button>
   <button class="pri" id="pin">釘選這一刻</button>
   <label style="color:var(--dim)">時間偏移
-    <input type="number" id="off" value="0" step="0.1" style="width:66px;background:#2b3346;
+    <input type="number" id="off" value="__OFFSET__" step="0.01" style="width:66px;background:#2b3346;
            color:var(--ink);border:1px solid #3a4560;border-radius:5px;padding:3px 6px">s</label>
 </div>
 
@@ -318,7 +318,9 @@ def main():
     ap.add_argument("--out", default="viewer")
     ap.add_argument("--telemetry", default=None, help="ch2 的 _parsed.csv")
     ap.add_argument("--fps", type=float, default=15.0, help="抽幀時的幀率")
-    ap.add_argument("--t0", type=float, default=16.0, help="第一幀對應的飛行時間")
+    ap.add_argument("--t0", type=float, default=16.0, help="第一幀在片段裡的時間（秒）")
+    ap.add_argument("--offset", type=float, default=-0.48,
+                    help="飛行 T+ = 片段時間 + offset。預設 -0.48 對應從 5:54:53 起的片段")
     ap.add_argument("--every", type=int, default=3)
     ap.add_argument("--stack", type=int, default=1,
                     help="疊幀張數。★只有在抽幀率夠高、時間窗夠短時才有用："
@@ -353,7 +355,7 @@ def main():
         f.write("const IDX=" + json.dumps(idx) + ";\n")
         f.write("const TELE=" + json.dumps(tele) + ";\n")
     with open(os.path.join(a.out, "index.html"), "w", encoding="utf-8") as f:
-        f.write(HTML)
+        f.write(HTML.replace("__OFFSET__", f"{a.offset:g}"))
 
     size = sum(os.path.getsize(os.path.join(out_img, x)) for x in os.listdir(out_img))
     print(f"  {len(idx)} 個時間點 × 3 通道 = {len(idx)*3} 張，{size/1048576:.1f} MB")
